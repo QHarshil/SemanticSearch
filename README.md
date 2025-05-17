@@ -41,7 +41,7 @@ SemanticSearchJava is a Spring Boot microservice that provides sub-100 ms semant
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/semantic-search-java.git
+   git clone https://github.com/QHarshil/SemanticSearch-Java.git
    cd semantic-search-java
    ```
 
