@@ -2,23 +2,24 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
+    
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
         <version>3.1.5</version>
-        <relativePath/>
+        <relativePath/> <!-- lookup parent from repository -->
     </parent>
-
+    
     <groupId>io.github.semanticsearch</groupId>
     <artifactId>semantic-search-java</artifactId>
     <version>1.0.0</version>
     <name>semantic-search-java</name>
     <description>AI-Powered Semantic Search Microservice in Java</description>
-
+    
     <properties>
         <java.version>17</java.version>
         <elasticsearch.version>8.10.4</elasticsearch.version>
+        <openai.version>0.18.2</openai.version>
         <springdoc.version>2.2.0</springdoc.version>
         <testcontainers.version>1.19.1</testcontainers.version>
         <resilience4j.version>2.1.0</resilience4j.version>
@@ -27,14 +28,7 @@
         <sonar.version>3.9.1.2184</sonar.version>
         <spotless.version>2.40.0</spotless.version>
     </properties>
-
-    <repositories>
-        <repository>
-            <id>jitpack.io</id>
-            <url>https://jitpack.io</url>
-        </repository>
-    </repositories>
-
+    
     <dependencies>
         <!-- Spring Boot Core -->
         <dependency>
@@ -61,7 +55,7 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
-
+        
         <!-- Database -->
         <dependency>
             <groupId>org.postgresql</groupId>
@@ -72,24 +66,25 @@
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
         </dependency>
-
+        
         <!-- Elasticsearch -->
         <dependency>
             <groupId>co.elastic.clients</groupId>
             <artifactId>elasticsearch-java</artifactId>
+            <version>${elasticsearch.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.data</groupId>
             <artifactId>spring-data-elasticsearch</artifactId>
         </dependency>
-
-        <!-- OpenAI via JitPack -->
+        
+        <!-- OpenAI -->
         <dependency>
-            <groupId>com.github.TheoKanning</groupId>
-            <artifactId>openai-java</artifactId>
-            <version>0.12.0</version>
+            <groupId>com.theokanning.openai-gpt3-java</groupId>
+            <artifactId>service</artifactId>
+            <version>${openai.version}</version>
         </dependency>
-
+        
         <!-- Resilience4j -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>
@@ -101,7 +96,7 @@
             <artifactId>resilience4j-reactor</artifactId>
             <version>${resilience4j.version}</version>
         </dependency>
-
+        
         <!-- Monitoring -->
         <dependency>
             <groupId>io.micrometer</groupId>
@@ -115,14 +110,14 @@
             <groupId>io.zipkin.reporter2</groupId>
             <artifactId>zipkin-reporter-brave</artifactId>
         </dependency>
-
+        
         <!-- API Documentation -->
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
             <version>${springdoc.version}</version>
         </dependency>
-
+        
         <!-- Utilities -->
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -137,7 +132,7 @@
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
         </dependency>
-
+        
         <!-- Testing -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -179,7 +174,7 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
-
+    
     <build>
         <plugins>
             <plugin>
@@ -194,7 +189,8 @@
                     </excludes>
                 </configuration>
             </plugin>
-
+            
+            <!-- Code Quality -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
@@ -234,7 +230,7 @@
                     </execution>
                 </executions>
             </plugin>
-
+            
             <plugin>
                 <groupId>com.diffplug.spotless</groupId>
                 <artifactId>spotless-maven-plugin</artifactId>
@@ -260,7 +256,7 @@
                     </execution>
                 </executions>
             </plugin>
-
+            
             <plugin>
                 <groupId>org.sonarsource.scanner.maven</groupId>
                 <artifactId>sonar-maven-plugin</artifactId>
