@@ -1,142 +1,138 @@
-# SemanticSearchJava
+# Semantic Search Java
 
-AI-Powered Semantic Search Microservice in Java
+A high-performance, AI-powered semantic search microservice built with Java and Spring Boot.
 
 ## Overview
 
-SemanticSearchJava is a Spring Boot microservice that provides sub-100 ms semantic search over arbitrary text corpora. It ingests documents, generates embeddings via OpenAI's Embeddings API, indexes vectors with Elasticsearch, and exposes a RESTful API for semantic search—all in idiomatic, modular Java.
+This project provides a robust semantic search capability using vector embeddings to find conceptually similar documents. It leverages OpenAI's embedding models for text vectorization and Elasticsearch for efficient vector search.
 
 ## Features
 
-- **Semantic Search**: Find documents based on meaning, not just keywords
-- **High Performance**: Sub-100 ms search response times
-- **Scalable Architecture**: Built with Elasticsearch for distributed search
-- **Caching**: Redis-based caching for frequently accessed results
-- **Comprehensive API**: RESTful endpoints for document management and search
-- **Monitoring**: Prometheus and Grafana integration for metrics
-- **Security**: Built-in authentication and authorization
-- **Fault Tolerance**: Circuit breakers, retries, and fallback mechanisms
-- **Containerized**: Docker and Kubernetes ready
-
-## Tech Stack
-
-- **Java 17 + Spring Boot 3.1** (WebFlux for async I/O)
-- **OpenAI Java SDK** (text-embedding-ada-002)
-- **Elasticsearch 8.x** (Vector search)
-- **PostgreSQL** (Document metadata)
-- **Redis** (Caching)
-- **Micrometer + Prometheus/Grafana** (Metrics)
-- **Docker & Docker Compose**
-- **GitHub Actions** (CI/CD)
+- **Semantic Document Search**: Find documents based on meaning, not just keywords
+- **Vector Embeddings**: Convert text to vector representations using OpenAI's embedding models
+- **High Performance**: Optimized for speed and scalability with Elasticsearch
+- **REST API**: Simple and intuitive API for document indexing and searching
+- **Resilient Design**: Circuit breakers and fallbacks for external service dependencies
+- **Monitoring**: Prometheus metrics and health endpoints
+- **Security**: Basic authentication and CORS configuration
+- **Swagger Documentation**: Interactive API documentation
 
 ## Getting Started
 
 ### Prerequisites
 
 - Java 17 or higher
-- Docker and Docker Compose
+- Maven 3.6 or higher
+- Docker and Docker Compose (for containerized deployment)
 - OpenAI API key
 
-### Running with Docker Compose
+### Running Locally
 
-1. Clone the repository:
-   ```bash
+1. Clone the repository
+   ```
    git clone https://github.com/QHarshil/SemanticSearch-Java.git
    cd semantic-search-java
    ```
 
-2. Set your OpenAI API key:
-   ```bash
-   export OPENAI_API_KEY=your_openai_api_key
+2. Configure environment variables in `application.yml` or set them in your environment:
+   ```
+   POSTGRES_HOST=localhost
+   POSTGRES_PORT=5432
+   POSTGRES_DB=semanticsearch
+   POSTGRES_USER=postgres
+   POSTGRES_PASSWORD=postgres
+   ELASTICSEARCH_HOST=localhost
+   ELASTICSEARCH_PORT=9200
+   OPENAI_API_KEY=your_openai_api_key
    ```
 
-3. Start the services:
-   ```bash
-   docker-compose up -d
+3. Build the application
+   ```
+   mvn clean package
    ```
 
-4. The application will be available at http://localhost:8080
-
-### Running Locally
-
-1. Start PostgreSQL, Elasticsearch, and Redis:
-   ```bash
-   docker-compose up -d postgres elasticsearch redis
+4. Run the application
    ```
-
-2. Build and run the application:
-   ```bash
-   ./mvnw clean package
    java -jar target/semantic-search-java-1.0.0.jar
+   ```
+
+5. Access the application at http://localhost:8080
+
+### Docker Deployment
+
+1. Build the Docker image
+   ```
+   docker build -t semantic-search-java .
+   ```
+
+2. Run with Docker Compose
+   ```
+   docker-compose up -d
    ```
 
 ## API Documentation
 
-Once the application is running, you can access the Swagger UI at:
+Once the application is running, access the Swagger UI at:
 ```
 http://localhost:8080/swagger-ui.html
 ```
 
-### Key Endpoints
-
-- `POST /api/v1/documents` - Create a new document
-- `GET /api/v1/documents/{id}` - Retrieve a document by ID
-- `PUT /api/v1/documents/{id}` - Update a document
-- `DELETE /api/v1/documents/{id}` - Delete a document
-- `GET /api/v1/search?query=...` - Perform semantic search
-- `POST /api/v1/search/advanced` - Advanced search with filters
-- `GET /api/v1/search/similar/{id}` - Find similar documents
-
 ## Architecture
 
-The service follows a modular architecture with clear separation of concerns:
+The application follows a clean architecture pattern with the following components:
 
-- **Document Service**: Manages document CRUD operations
-- **Embedding Service**: Generates vector embeddings using OpenAI
-- **Index Service**: Manages the Elasticsearch vector index
-- **Search Service**: Coordinates search operations
+- **Controllers**: REST API endpoints for document and search operations
+- **Services**: Business logic for embedding generation, indexing, and searching
+- **Repositories**: Data access layer for document storage
+- **Models**: Data structures for documents and search results
+- **Configuration**: Application settings and external service connections
 
-For more details, see the [architecture documentation](architecture.md).
+See the [Architecture Documentation](docs/ARCHITECTURE.md) for more details.
 
-## Monitoring
+## Tech Stack
 
-The application exposes metrics through Micrometer and Prometheus:
+- **Java 17**: Core programming language
+- **Spring Boot 3**: Application framework
+- **Elasticsearch**: Vector database for document storage and search
+- **PostgreSQL**: Relational database for document metadata
+- **Redis**: Caching layer for improved performance
+- **OpenAI API**: Text embedding generation
+- **Docker**: Containerization
+- **React**: Frontend UI
 
-- Prometheus: http://localhost:9090
-- Grafana: http://localhost:3000 (default credentials: admin/admin)
+## Project Structure
 
-## Testing
-
-Run the tests with:
-
-```bash
-./mvnw test
+```
+semantic-search-java/
+├── src/
+│   ├── main/
+│   │   ├── java/io/github/semanticsearch/
+│   │   │   ├── config/         # Configuration classes
+│   │   │   ├── controller/     # REST API controllers
+│   │   │   ├── exception/      # Exception handling
+│   │   │   ├── model/          # Data models
+│   │   │   ├── repository/     # Data access layer
+│   │   │   ├── security/       # Security configuration
+│   │   │   ├── service/        # Business logic
+│   │   │   └── util/           # Utility classes
+│   │   └── resources/
+│   │       ├── application.yml # Application configuration
+│   │       └── static/         # Compiled UI assets
+│   └── test/                   # Test classes
+├── ui/                         # Frontend source code (React)
+├── docs/                       # Documentation
+├── Dockerfile                  # Docker configuration
+├── docker-compose.yml          # Multi-container Docker setup
+└── pom.xml                     # Maven build configuration
 ```
 
-Generate a test coverage report:
+## UI Structure
 
-```bash
-./mvnw jacoco:report
-```
+The UI is a React application that provides a user-friendly interface for the semantic search functionality:
 
-The report will be available at `target/site/jacoco/index.html`.
-
-## CI/CD Pipeline
-
-The project includes a GitHub Actions workflow for continuous integration and deployment:
-
-- Builds and tests the application
-- Checks code quality and test coverage
-- Performs security scanning
-- Builds and publishes Docker images
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/your-feature-name`
-3. Commit your changes: `git commit -am 'Add some feature'`
-4. Push to the branch: `git push origin feature/your-feature-name`
-5. Submit a pull request
+- **Source Code**: Located in the `ui/` directory (not included in the compiled archive)
+- **Compiled Assets**: Located in `src/main/resources/static/` directory
+- **Build Process**: The React application is built and the resulting assets are placed in the static resources directory for Spring Boot to serve
 
 ## License
 

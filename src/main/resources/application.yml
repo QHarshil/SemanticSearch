@@ -1,4 +1,6 @@
 spring:
+  main:
+    allow-bean-definition-overriding: true
   application:
     name: Semantic Search Java
     description: AI-Powered Semantic Search Microservice in Java

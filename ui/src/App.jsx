@@ -1,104 +1,77 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { Routes, Route, useLocation } from 'react-router-dom';
+import Navbar from './components/Navbar';
+import Footer from './components/Footer';
+import HomePage from './pages/HomePage';
+import SearchPage from './pages/SearchPage';
+import DocumentsPage from './pages/DocumentsPage';
+import AboutPage from './pages/AboutPage';
+import LoadingSpinner from './components/LoadingSpinner';
+import ErrorBoundary from './components/ErrorBoundary';
+import { AuthProvider } from './context/AuthContext';
+import { ToastContainer } from './components/Toast';
 import './App.css';
 
 function App() {
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    const savedMode = localStorage.getItem('darkMode');
+    return savedMode ? JSON.parse(savedMode) : false;
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const location = useLocation();
 
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    if (!query.trim()) return;
+  useEffect(() => {
+    // Save dark mode preference to localStorage
+    localStorage.setItem('darkMode', JSON.stringify(darkMode));
     
-    setLoading(true);
-    try {
-      const response = await fetch(`/api/v1/search?query=${encodeURIComponent(query)}`);
-      if (!response.ok) {
-        throw new Error('Search failed');
-      }
-      const data = await response.json();
-      setResults(data);
-    } catch (error) {
-      console.error('Error performing search:', error);
-      setResults([]);
-    } finally {
-      setLoading(false);
+    // Apply dark mode class to body
+    if (darkMode) {
+      document.body.classList.add('dark-mode');
+    } else {
+      document.body.classList.remove('dark-mode');
     }
+  }, [darkMode]);
+
+  useEffect(() => {
+    // Simulate initial app loading
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 800);
+    
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    // Scroll to top on route change
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
+
+  const toggleDarkMode = () => {
+    setDarkMode(prevMode => !prevMode);
   };
 
+  if (isLoading) {
+    return <LoadingSpinner fullScreen />;
+  }
+
   return (
-    <div className="min-h-screen bg-gray-100">
-      <header className="bg-blue-600 text-white shadow-md">
-        <div className="container mx-auto px-4 py-4">
-          <h1 className="text-xl font-bold">SemanticSearchJava</h1>
-          <p className="text-sm opacity-75">AI-Powered Semantic Search</p>
+    <ErrorBoundary>
+      <AuthProvider>
+        <div className={`app-container ${darkMode ? 'dark-mode' : 'light-mode'}`}>
+          <Navbar darkMode={darkMode} toggleDarkMode={toggleDarkMode} />
+          <main className="main-content">
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/search" element={<SearchPage />} />
+              <Route path="/documents" element={<DocumentsPage />} />
+              <Route path="/about" element={<AboutPage />} />
+            </Routes>
+          </main>
+          <Footer />
+          <ToastContainer />
         </div>
-      </header>
-
-      <main className="container mx-auto px-4 py-8">
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <h2 className="text-2xl font-bold mb-6">Semantic Search</h2>
-          
-          <form onSubmit={handleSearch} className="mb-8">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Enter your search query..."
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                className="flex-1 px-4 py-2 border rounded-md"
-              />
-              <button 
-                type="submit" 
-                disabled={loading || !query.trim()}
-                className="bg-blue-600 text-white px-4 py-2 rounded-md disabled:opacity-50"
-              >
-                {loading ? 'Searching...' : 'Search'}
-              </button>
-            </div>
-          </form>
-
-          {results.length > 0 ? (
-            <div className="space-y-4">
-              <h3 className="text-lg font-medium">Found {results.length} results</h3>
-              
-              {results.map((result) => (
-                <div key={result.id} className="border rounded-md p-4">
-                  <div className="flex justify-between items-start">
-                    <h4 className="text-xl font-semibold">{result.title}</h4>
-                    <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
-                      Score: {result.score.toFixed(2)}
-                    </span>
-                  </div>
-                  
-                  <p className="mt-2 text-gray-700">
-                    {result.content.length > 300
-                      ? `${result.content.substring(0, 300)}...`
-                      : result.content}
-                  </p>
-                  
-                  <div className="mt-2 text-xs text-gray-500">
-                    Document ID: {result.id}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8">
-              <p className="text-gray-500">
-                {loading ? 'Searching...' : 'No results found. Try a different search query.'}
-              </p>
-            </div>
-          )}
-        </div>
-      </main>
-      
-      <footer className="bg-gray-800 text-white py-6 mt-12">
-        <div className="container mx-auto px-4 text-center">
-          <p>SemanticSearchJava - AI-Powered Semantic Search</p>
-        </div>
-      </footer>
-    </div>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 

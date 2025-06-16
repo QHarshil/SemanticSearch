@@ -1,19 +1,32 @@
-FROM eclipse-temurin:17-jdk AS build
-WORKDIR /app
-COPY . .
-RUN ./mvnw clean package -DskipTests
+FROM eclipse-temurin:17-jdk-alpine as build
+WORKDIR /workspace/app
 
-FROM eclipse-temurin:17-jre
-WORKDIR /app
-COPY --from=build /app/target/*.jar app.jar
+# Copy maven executable and pom.xml
+COPY mvnw .
+COPY .mvn .mvn
+COPY pom.xml .
 
-# Create directory for logs
-RUN mkdir -p /app/logs && \
-    chmod 777 /app/logs
+# Build dependencies
+RUN ./mvnw dependency:go-offline -B
 
-# Set environment variables with defaults
-ENV SPRING_PROFILES_ACTIVE=prod
-ENV SERVER_PORT=8080
+# Copy source code
+COPY src src
+
+# Package the application
+RUN ./mvnw package -DskipTests
+RUN mkdir -p target/dependency && (cd target/dependency; jar -xf ../*.jar)
+
+# Runtime stage
+FROM eclipse-temurin:17-jre-alpine
+VOLUME /tmp
+ARG DEPENDENCY=/workspace/app/target/dependency
+
+# Copy dependencies
+COPY --from=build ${DEPENDENCY}/BOOT-INF/lib /app/lib
+COPY --from=build ${DEPENDENCY}/META-INF /app/META-INF
+COPY --from=build ${DEPENDENCY}/BOOT-INF/classes /app
+
+# Set environment variables
 ENV POSTGRES_HOST=postgres
 ENV POSTGRES_PORT=5432
 ENV POSTGRES_DB=semanticsearch
@@ -21,11 +34,12 @@ ENV POSTGRES_USER=postgres
 ENV POSTGRES_PASSWORD=postgres
 ENV ELASTICSEARCH_HOST=elasticsearch
 ENV ELASTICSEARCH_PORT=9200
+ENV ELASTICSEARCH_PROTOCOL=http
 ENV REDIS_HOST=redis
 ENV REDIS_PORT=6379
 
-# Expose the application port
+# Expose port
 EXPOSE 8080
 
 # Run the application
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-cp", "app:app/lib/*", "io.github.semanticsearch.SemanticSearchApplication"]
