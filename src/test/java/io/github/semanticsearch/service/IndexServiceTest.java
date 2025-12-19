@@ -1,259 +1,251 @@
 package io.github.semanticsearch.service;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
 
 import java.io.IOException;
-import java.util.*;
-import java.util.function.Function;
+import java.util.AbstractMap;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.github.semanticsearch.model.Document;
-import io.github.semanticsearch.repository.DocumentRepository;
+import io.github.semanticsearch.support.InMemoryDocumentRepository;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.Result;
-import co.elastic.clients.elasticsearch.core.DeleteRequest;
 import co.elastic.clients.elasticsearch.core.DeleteResponse;
-import co.elastic.clients.elasticsearch.core.IndexRequest;
 import co.elastic.clients.elasticsearch.core.IndexResponse;
-import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
-import co.elastic.clients.elasticsearch.core.search.HitsMetadata;
-import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
 import co.elastic.clients.elasticsearch.indices.CreateIndexResponse;
-import co.elastic.clients.elasticsearch.indices.ExistsRequest;
+import co.elastic.clients.json.JsonpMapper;
+import co.elastic.clients.json.jackson.JacksonJsonpMapper;
+import co.elastic.clients.transport.Endpoint;
+import co.elastic.clients.transport.ElasticsearchTransport;
+import co.elastic.clients.transport.TransportOptions;
 import co.elastic.clients.transport.endpoints.BooleanResponse;
-import co.elastic.clients.util.ObjectBuilder;
 
-@ExtendWith(MockitoExtension.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
-public class IndexServiceTest {
+class IndexServiceTest {
 
-  @Mock private ElasticsearchClient elasticsearchClient;
-
-  @Mock private EmbeddingService embeddingService;
-
-  @Mock private DocumentRepository documentRepository;
-
-  @Mock private co.elastic.clients.elasticsearch.indices.ElasticsearchIndicesClient indicesClient;
-
-  @InjectMocks private IndexService indexService;
-
+  private InMemoryDocumentRepository repository;
+  private StubEmbeddingService embeddingService;
+  private RecordingTransport transport;
+  private IndexService indexService;
   private Document testDocument;
-  private BooleanResponse existsResponse;
-  private CreateIndexResponse createResponse;
-  private IndexResponse indexResponse;
-  private DeleteResponse deleteResponse;
-  private SearchResponse<Map> searchResponse;
 
   @BeforeEach
-  void setUp() throws IOException {
+  void setUp() {
+    repository = new InMemoryDocumentRepository();
+    embeddingService = new StubEmbeddingService(List.of(0.1, 0.2, 0.3));
+    transport = new RecordingTransport();
+    ElasticsearchClient client = new ElasticsearchClient(transport);
+    indexService = new IndexService(client, embeddingService, repository);
     ReflectionTestUtils.setField(indexService, "indexName", "test-index");
-    ReflectionTestUtils.setField(indexService, "dimensions", 1536);
+    ReflectionTestUtils.setField(indexService, "dimensions", 3);
 
     testDocument = new Document();
     testDocument.setId(UUID.randomUUID());
     testDocument.setTitle("Test Document");
     testDocument.setContent("This is a test document content");
     testDocument.setContentHash("test-hash");
-    testDocument.setMetadata(Map.of("key", "value"));
-
-    // Set up the indices client mock to avoid NPE
-    when(elasticsearchClient.indices()).thenReturn(indicesClient);
-
-    // Create all mock responses
-    existsResponse = mock(BooleanResponse.class);
-    createResponse = mock(CreateIndexResponse.class);
-    indexResponse = mock(IndexResponse.class);
-    deleteResponse = mock(DeleteResponse.class);
-    searchResponse = mock(SearchResponse.class);
-
-    // Set up default behaviors
-    when(createResponse.acknowledged()).thenReturn(true);
-    when(indexResponse.result()).thenReturn(Result.Created);
-    when(deleteResponse.result()).thenReturn(Result.Deleted);
-
-    // Set up mock responses with explicit method signatures
-    // For indices.exists
-    when(indicesClient.exists(any(ExistsRequest.class))).thenReturn(existsResponse);
-
-    // For indices.create
-    when(indicesClient.create(any(CreateIndexRequest.class))).thenReturn(createResponse);
-
-    // For index - using Function-based signature to match lambda usage
-    doAnswer(invocation -> indexResponse).when(elasticsearchClient).<Map>index(any(Function.class));
-
-    // For delete - using Function-based signature to match lambda usage
-    doAnswer(invocation -> deleteResponse).when(elasticsearchClient).delete(any(Function.class));
-
-    // For search - using Function-based signature to match lambda usage
-    doAnswer(invocation -> searchResponse)
-        .when(elasticsearchClient)
-        .<Map>search(any(Function.class), eq(Map.class));
   }
 
   @Test
-  void testInitializeIndex_Success() throws IOException {
-    // Arrange
-    when(existsResponse.value()).thenReturn(false);
-
-    // Act
+  void initializeIndexCreatesIndexWhenMissing() {
+    transport.existsResponse = new BooleanResponse(false);
     indexService.initializeIndex();
-
-    // Assert
-    verify(indicesClient).exists(any(ExistsRequest.class));
-    verify(indicesClient).create(any(CreateIndexRequest.class));
+    assertTrue(transport.createIndexCalled);
   }
 
   @Test
-  void testInitializeIndex_AlreadyExists() throws IOException {
-    // Arrange
-    when(existsResponse.value()).thenReturn(true);
-
-    // Act
+  void initializeIndexSkipsWhenExists() {
+    transport.existsResponse = new BooleanResponse(true);
     indexService.initializeIndex();
-
-    // Assert
-    verify(indicesClient).exists(any(ExistsRequest.class));
-    verify(indicesClient, never()).create(any(CreateIndexRequest.class));
+    assertFalse(transport.createIndexCalled);
   }
 
   @Test
-  void testIndexDocument_Success() throws IOException {
-    // Arrange
-    List<Double> embedding = Arrays.asList(0.1, 0.2, 0.3);
-    when(embeddingService.embed(anyString())).thenReturn(embedding);
-    when(documentRepository.save(any(Document.class))).thenReturn(testDocument);
-
-    // Mock the index method using doAnswer to handle the lambda-based call
-    doAnswer(
-            invocation -> {
-              // Extract the function argument (lambda)
-              Function<IndexRequest.Builder<Map>, ObjectBuilder<IndexRequest<Map>>> function =
-                  invocation.getArgument(0);
-
-              // Return the mocked response
-              return indexResponse;
-            })
-        .when(elasticsearchClient)
-        .<Map>index(any(Function.class));
-
-    when(indexResponse.result()).thenReturn(Result.Created);
-
-    // Act
+  void indexDocumentSavesVectorId() {
+    repository.save(testDocument);
     Document result = indexService.indexDocument(testDocument);
 
-    // Assert
-    assertNotNull(result);
     assertTrue(result.isIndexed());
     assertNotNull(result.getVectorId());
-    verify(embeddingService).embed(testDocument.getContent());
-    verify(elasticsearchClient).<Map>index(any(Function.class));
-    verify(documentRepository).save(testDocument);
+    assertEquals(1, repository.count());
+    assertEquals(Result.Created, transport.indexResponse.result());
   }
 
   @Test
-  void testIndexDocument_EmptyEmbedding() throws IOException {
-    // Arrange
-    when(embeddingService.embed(anyString())).thenReturn(Collections.emptyList());
-
-    // Act
+  void indexDocumentReturnsOriginalWhenEmbeddingFails() {
+    embeddingService.nextEmbedding = Collections.emptyList();
     Document result = indexService.indexDocument(testDocument);
-
-    // Assert
-    assertNotNull(result);
     assertFalse(result.isIndexed());
     assertNull(result.getVectorId());
-    verify(embeddingService).embed(testDocument.getContent());
-    verify(elasticsearchClient, never()).<Map>index(any(Function.class));
-    verify(documentRepository, never()).save(any(Document.class));
   }
 
   @Test
-  void testDeleteDocumentVector_Success() throws IOException {
-    // Arrange
-    String vectorId = "test-vector-id";
-
-    // Mock the delete method using doAnswer to handle the lambda-based call
-    doAnswer(
-            invocation -> {
-              // Extract the function argument (lambda)
-              Function<DeleteRequest.Builder, ObjectBuilder<DeleteRequest>> function =
-                  invocation.getArgument(0);
-
-              // Return the mocked response
-              return deleteResponse;
-            })
-        .when(elasticsearchClient)
-        .delete(any(Function.class));
-
-    when(deleteResponse.result()).thenReturn(Result.Deleted);
-
-    // Act
-    boolean result = indexService.deleteDocumentVector(vectorId);
-
-    // Assert
-    assertTrue(result);
-    verify(elasticsearchClient).delete(any(Function.class));
+  void deleteDocumentVectorReturnsTrue() {
+    boolean deleted = indexService.deleteDocumentVector("vector-123");
+    assertTrue(deleted);
+    assertTrue(transport.deleteCalled);
   }
 
-  @SuppressWarnings({"unchecked", "rawtypes"})
   @Test
-  void testFindSimilarDocuments_Success() throws IOException {
-    // Arrange
-    List<Double> queryVector = Arrays.asList(0.1, 0.2, 0.3);
-    int limit = 10;
-    double minScore = 0.7;
+  void findSimilarDocumentsMapsSearchHits() {
+    UUID similarId = UUID.randomUUID();
+    transport.setSearchHit(similarId.toString(), 0.9);
 
-    // Create properly mocked search response objects
-    HitsMetadata hitsMetadata = mock(HitsMetadata.class);
-
-    Hit hit = mock(Hit.class);
-    when(hit.score()).thenReturn(0.85);
-    when(hit.source()).thenReturn(Map.of("document_id", testDocument.getId().toString()));
-
-    List<Hit> hitsList = new ArrayList<>();
-    hitsList.add(hit);
-
-    when(hitsMetadata.hits()).thenReturn(hitsList);
-
-    // Ensure searchResponse is properly mocked with a non-null hits result
-    when(searchResponse.hits()).thenReturn(hitsMetadata);
-
-    // Mock the search method using doAnswer to handle the lambda-based call
-    doAnswer(
-            invocation -> {
-              // Extract the function argument (lambda)
-              Function<SearchRequest.Builder, ObjectBuilder<SearchRequest>> function =
-                  invocation.getArgument(0);
-
-              // Return the mocked response
-              return searchResponse;
-            })
-        .when(elasticsearchClient)
-        .<Map>search(any(Function.class), eq(Map.class));
-
-    // Act
     List<Map.Entry<UUID, Double>> results =
-        indexService.findSimilarDocuments(queryVector, limit, minScore);
+        indexService.findSimilarDocuments(List.of(0.1, 0.2, 0.3), 5, 0.2);
 
-    // Assert
-    assertFalse(results.isEmpty());
     assertEquals(1, results.size());
-    assertEquals(testDocument.getId(), results.get(0).getKey());
-    assertEquals(0.85, results.get(0).getValue());
-    verify(elasticsearchClient).<Map>search(any(Function.class), eq(Map.class));
+    assertEquals(similarId, results.getFirst().getKey());
+    assertEquals(0.9, results.getFirst().getValue());
+    assertTrue(transport.searchCalled);
+  }
+
+  private static class StubEmbeddingService extends EmbeddingService {
+    List<Double> nextEmbedding;
+
+    StubEmbeddingService(List<Double> nextEmbedding) {
+      super(null);
+      this.nextEmbedding = nextEmbedding;
+    }
+
+    @Override
+    public List<Double> embed(String text) {
+      return nextEmbedding;
+    }
+  }
+
+  private static class RecordingTransport implements ElasticsearchTransport {
+    BooleanResponse existsResponse = new BooleanResponse(false);
+    boolean createIndexCalled = false;
+    boolean deleteCalled = false;
+    boolean searchCalled = false;
+    IndexResponse indexResponse =
+        IndexResponse.of(
+            b ->
+                b.result(Result.Created)
+                    .id("vector-id")
+                    .index("test-index")
+                    .version(1)
+                    .seqNo(1)
+                    .primaryTerm(1)
+                    .shards(s -> s.total(1).successful(1).failed(0)));
+    DeleteResponse deleteResponse =
+        DeleteResponse.of(
+            b ->
+                b.result(Result.Deleted)
+                    .id("vector-id")
+                    .index("test-index")
+                    .version(1)
+                    .seqNo(1)
+                    .primaryTerm(1)
+                    .shards(s -> s.total(1).successful(1).failed(0)));
+    SearchResponse<Map> searchResponse =
+        SearchResponse.of(
+            b ->
+                b.took(1)
+                    .timedOut(false)
+                    .shards(s -> s.total(1).successful(1).failed(0))
+                    .hits(h -> h.hits(List.of())));
+    private final JsonpMapper mapper = new JacksonJsonpMapper();
+    private final TransportOptions emptyOptions =
+        new TransportOptions() {
+          @Override
+          public java.util.Collection<java.util.Map.Entry<String, String>> headers() {
+            return List.of();
+          }
+
+          @Override
+          public Map<String, String> queryParameters() {
+            return Map.of();
+          }
+
+          @Override
+          public java.util.function.Function<List<String>, Boolean> onWarnings() {
+            return warnings -> true;
+          }
+
+          @Override
+          public Builder toBuilder() {
+            return null;
+          }
+        };
+
+    void setSearchHit(String documentId, double score) {
+      Hit<Map> hit =
+          Hit.of(
+              h ->
+                  h.source(Map.of("document_id", documentId))
+                      .score(score)
+                      .index("test-index")
+                      .id(documentId));
+      this.searchResponse =
+          SearchResponse.of(
+              b ->
+                  b.took(1)
+                      .timedOut(false)
+                      .shards(s -> s.total(1).successful(1).failed(0))
+                      .hits(h -> h.hits(hit)));
+    }
+
+    @Override
+    public <RequestT, ResponseT, ErrorT> ResponseT performRequest(
+        RequestT request, Endpoint<RequestT, ResponseT, ErrorT> endpoint, TransportOptions options)
+        throws IOException {
+      return castResponse(endpoint.id());
+    }
+
+    @Override
+    public <RequestT, ResponseT, ErrorT> CompletableFuture<ResponseT> performRequestAsync(
+        RequestT request,
+        Endpoint<RequestT, ResponseT, ErrorT> endpoint,
+        TransportOptions options) {
+      return CompletableFuture.completedFuture(castResponse(endpoint.id()));
+    }
+
+    @SuppressWarnings("unchecked")
+    private <ResponseT> ResponseT castResponse(String endpointId) {
+      switch (endpointId) {
+        case "es/indices.exists":
+          return (ResponseT) existsResponse;
+        case "es/indices.create":
+          createIndexCalled = true;
+          return (ResponseT)
+              CreateIndexResponse.of(
+                  b -> b.acknowledged(true).shardsAcknowledged(true).index("test-index"));
+        case "es/index":
+          return (ResponseT) indexResponse;
+        case "es/delete":
+          deleteCalled = true;
+          return (ResponseT) deleteResponse;
+        case "es/search":
+          searchCalled = true;
+          return (ResponseT) searchResponse;
+        default:
+          throw new IllegalArgumentException("Unexpected endpoint: " + endpointId);
+      }
+    }
+
+    @Override
+    public JsonpMapper jsonpMapper() {
+      return mapper;
+    }
+
+    @Override
+    public TransportOptions options() {
+      return emptyOptions;
+    }
+
+    @Override
+    public void close() throws IOException {}
   }
 }

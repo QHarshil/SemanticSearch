@@ -1,119 +1,90 @@
 package io.github.semanticsearch.service;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
 
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.theokanning.openai.embedding.Embedding;
 import com.theokanning.openai.embedding.EmbeddingRequest;
+import com.theokanning.openai.embedding.EmbeddingResult;
 import com.theokanning.openai.service.OpenAiService;
 
-@ExtendWith(MockitoExtension.class)
-public class EmbeddingServiceTest {
+class EmbeddingServiceTest {
 
-  @Mock private OpenAiService openAiService;
-
-  @InjectMocks private EmbeddingService embeddingService;
+  private StubOpenAiService openAiService;
+  private EmbeddingService embeddingService;
 
   @BeforeEach
   void setUp() {
+    openAiService = new StubOpenAiService();
+    embeddingService = new EmbeddingService(openAiService);
     ReflectionTestUtils.setField(embeddingService, "embeddingModel", "text-embedding-ada-002");
   }
 
   @Test
-  void testEmbed_Success() {
-    // Arrange
-    String text = "Test text for embedding";
+  void embedReturnsVectorFromProvider() {
+    List<Double> expected = Arrays.asList(0.1, 0.2, 0.3);
+    Embedding embedding = new Embedding();
+    embedding.setEmbedding(expected);
+    EmbeddingResult result = new EmbeddingResult();
+    result.setData(List.of(embedding));
+    openAiService.nextResult = result;
 
-    // Create a mock embedding with Float values (as per OpenAI SDK)
-    List<Double> expectedEmbedding = Arrays.asList(0.1, 0.2, 0.3);
+    List<Double> vector = embeddingService.embed("Sample text");
 
-    // Create a mock embedding object with proper conversion
-    Embedding embedding = mock(Embedding.class);
-    // The OpenAI SDK returns List<Double> in newer versions
-    when(embedding.getEmbedding()).thenReturn(expectedEmbedding);
-
-    // Create the embedding result
-    com.theokanning.openai.embedding.EmbeddingResult embeddingResult =
-        mock(com.theokanning.openai.embedding.EmbeddingResult.class);
-    when(embeddingResult.getData()).thenReturn(Collections.singletonList(embedding));
-
-    // Mock the OpenAI service response
-    when(openAiService.createEmbeddings(any(EmbeddingRequest.class))).thenReturn(embeddingResult);
-
-    // Act
-    List<Double> result = embeddingService.embed(text);
-
-    // Assert
-    assertEquals(expectedEmbedding, result);
-    verify(openAiService).createEmbeddings(any(EmbeddingRequest.class));
+    assertEquals(expected, vector);
+    assertEquals("Sample text", openAiService.lastRequest.getInput().get(0));
   }
 
   @Test
-  void testEmbed_EmptyResponse() {
-    // Arrange
-    String text = "Test text for embedding";
+  void embedReturnsEmptyListWhenProviderReturnsNothing() {
+    EmbeddingResult result = new EmbeddingResult();
+    result.setData(Collections.emptyList());
+    openAiService.nextResult = result;
 
-    com.theokanning.openai.embedding.EmbeddingResult embeddingResult =
-        mock(com.theokanning.openai.embedding.EmbeddingResult.class);
-    when(embeddingResult.getData()).thenReturn(Collections.emptyList());
+    List<Double> vector = embeddingService.embed("no data");
 
-    when(openAiService.createEmbeddings(any(EmbeddingRequest.class))).thenReturn(embeddingResult);
+    assertTrue(vector.isEmpty());
+  }
 
-    // Act
-    List<Double> result = embeddingService.embed(text);
+  @Test
+  void fallbackReturnsEmptyListOnError() throws Exception {
+    RuntimeException apiError = new RuntimeException("API Error");
+    openAiService.toThrow = apiError;
 
-    // Assert
+    assertThrows(RuntimeException.class, () -> embeddingService.embed("boom"));
+
+    Method fallback =
+        EmbeddingService.class.getDeclaredMethod("fallbackEmbed", String.class, Exception.class);
+    fallback.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    List<Double> result = (List<Double>) fallback.invoke(embeddingService, "boom", apiError);
     assertTrue(result.isEmpty());
-    verify(openAiService).createEmbeddings(any(EmbeddingRequest.class));
   }
 
-  @Test
-  void testEmbed_Exception() {
-    // Arrange
-    String text = "Test text for embedding";
+  private static class StubOpenAiService extends OpenAiService {
+    EmbeddingResult nextResult;
+    RuntimeException toThrow;
+    EmbeddingRequest lastRequest;
 
-    // Mock the exception with a specific type that matches the fallback method signature
-    when(openAiService.createEmbeddings(any(EmbeddingRequest.class)))
-        .thenThrow(new RuntimeException("API Error"));
-
-    // Since resilience4j annotations aren't active in test context,
-    // we need to directly test the fallback method
-    try {
-      // This will throw the exception since annotations aren't active
-      List<Double> result = embeddingService.embed(text);
-      fail("Expected exception was not thrown");
-    } catch (RuntimeException e) {
-      // Manually invoke the fallback method using reflection
-      try {
-        java.lang.reflect.Method fallbackMethod =
-            EmbeddingService.class.getDeclaredMethod(
-                "fallbackEmbed", String.class, Exception.class);
-        fallbackMethod.setAccessible(true);
-        List<Double> fallbackResult =
-            (List<Double>)
-                fallbackMethod.invoke(embeddingService, text, new RuntimeException("API Error"));
-
-        // Assert the fallback behavior
-        assertTrue(fallbackResult.isEmpty());
-      } catch (Exception reflectionEx) {
-        fail("Failed to invoke fallback method: " + reflectionEx.getMessage());
-      }
+    StubOpenAiService() {
+      super("test-token");
     }
 
-    // Verify the service was called
-    verify(openAiService).createEmbeddings(any(EmbeddingRequest.class));
+    @Override
+    public EmbeddingResult createEmbeddings(EmbeddingRequest request) {
+      this.lastRequest = request;
+      if (toThrow != null) {
+        throw toThrow;
+      }
+      return nextResult;
+    }
   }
 }

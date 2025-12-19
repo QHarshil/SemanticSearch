@@ -3,6 +3,8 @@ package io.github.semanticsearch.service;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
@@ -11,21 +13,27 @@ import io.github.semanticsearch.model.SearchRequest;
 import io.github.semanticsearch.model.SearchResult;
 import io.github.semanticsearch.repository.DocumentRepository;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-
 /**
  * Service for semantic search functionality. Coordinates embedding generation, vector search, and
  * result processing.
  */
 @Service
-@RequiredArgsConstructor
-@Slf4j
 public class SearchService {
+
+  private static final Logger log = LoggerFactory.getLogger(SearchService.class);
 
   private final EmbeddingService embeddingService;
   private final IndexService indexService;
   private final DocumentRepository documentRepository;
+
+  public SearchService(
+      EmbeddingService embeddingService,
+      IndexService indexService,
+      DocumentRepository documentRepository) {
+    this.embeddingService = embeddingService;
+    this.indexService = indexService;
+    this.documentRepository = documentRepository;
+  }
 
   /**
    * Perform semantic search based on query text. Caches results for frequent queries to improve
@@ -46,8 +54,8 @@ public class SearchService {
     }
 
     // Find similar documents
-    int limit = request.getLimit() > 0 ? request.getLimit() : 10;
-    double minScore = request.getMinScore() > 0 ? request.getMinScore() : 0.7;
+    int limit = Math.max(1, request.getLimit());
+    double minScore = Math.max(0.0, request.getMinScore());
     List<Map.Entry<UUID, Double>> similarDocuments =
         indexService.findSimilarDocuments(queryVector, limit, minScore);
 
@@ -71,12 +79,16 @@ public class SearchService {
       Document document = documentsMap.get(documentId);
 
       if (document != null) {
+        if (!matchesFilters(document, request.getFilters())) {
+          continue;
+        }
+
         SearchResult result =
             SearchResult.builder()
                 .id(document.getId())
                 .title(document.getTitle())
                 .content(request.isIncludeContent() ? document.getContent() : null)
-                .metadata(document.getMetadata())
+                .metadata(projectMetadata(document, request.getFields()))
                 .score(entry.getValue()) // Use double directly without conversion
                 .highlights(
                     request.isIncludeHighlights()
@@ -142,6 +154,10 @@ public class SearchService {
     for (Map.Entry<UUID, Double> entry : similarDocuments) {
       Document similarDoc = documentsMap.get(entry.getKey());
       if (similarDoc != null) {
+        if (!matchesFilters(similarDoc, Collections.emptyMap())) {
+          continue;
+        }
+
         SearchResult result =
             SearchResult.builder()
                 .id(similarDoc.getId())
@@ -201,5 +217,35 @@ public class SearchService {
     }
 
     return highlights;
+  }
+
+  private boolean matchesFilters(Document document, Map<String, String> filters) {
+    if (filters == null || filters.isEmpty()) {
+      return true;
+    }
+
+    Map<String, String> metadata = document.getMetadata() == null ? Map.of() : document.getMetadata();
+    for (Map.Entry<String, String> filter : filters.entrySet()) {
+      String value = metadata.get(filter.getKey());
+      if (value == null || !value.equalsIgnoreCase(filter.getValue())) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private Map<String, String> projectMetadata(Document document, List<String> fields) {
+    Map<String, String> metadata = document.getMetadata() == null ? Map.of() : document.getMetadata();
+    if (fields == null || fields.isEmpty()) {
+      return metadata;
+    }
+
+    Map<String, String> projected = new HashMap<>();
+    for (String key : fields) {
+      if (metadata.containsKey(key)) {
+        projected.put(key, metadata.get(key));
+      }
+    }
+    return projected;
   }
 }

@@ -1,2 +1,15 @@
+.DS_Store
+.idea/
 .vscode/
+logs/
+*.log
 target/
+
+# Node / Frontend
+node_modules/
+ui/node_modules/
+ui/dist/
+ui/.turbo/
+ui/.vite/
+ui/.next/
+ui/.cache/

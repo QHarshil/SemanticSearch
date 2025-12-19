@@ -10,21 +10,9 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
-/**
- * Document entity representing a text document in the system. Contains metadata and content for
- * semantic search indexing.
- */
+import jakarta.validation.constraints.NotBlank;
 @Entity
 @Table(name = "documents")
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
 @EntityListeners(AuditingEntityListener.class)
 public class Document {
 
@@ -32,9 +20,11 @@ public class Document {
   @GeneratedValue(strategy = GenerationType.UUID)
   private UUID id;
 
+  @NotBlank(message = "Title is required")
   @Column(nullable = false)
   private String title;
 
+  @NotBlank(message = "Content is required")
   @Column(columnDefinition = "TEXT", nullable = false)
   private String content;
 
@@ -51,7 +41,7 @@ public class Document {
   private String vectorId;
 
   @Column(name = "indexed", nullable = false)
-  private boolean indexed;
+  private boolean indexed = false;
 
   @CreatedDate
   @Column(name = "created_at", nullable = false, updatable = false)
@@ -60,4 +50,99 @@ public class Document {
   @LastModifiedDate
   @Column(name = "updated_at", nullable = false)
   private Instant updatedAt;
+
+  public Document() {}
+
+  public Document(
+      UUID id,
+      String title,
+      String content,
+      String contentHash,
+      Map<String, String> metadata,
+      String vectorId,
+      boolean indexed,
+      Instant createdAt,
+      Instant updatedAt) {
+    this.id = id;
+    this.title = title;
+    this.content = content;
+    this.contentHash = contentHash;
+    this.metadata = metadata != null ? metadata : new HashMap<>();
+    this.vectorId = vectorId;
+    this.indexed = indexed;
+    this.createdAt = createdAt;
+    this.updatedAt = updatedAt;
+  }
+
+  public UUID getId() {
+    return id;
+  }
+
+  public void setId(UUID id) {
+    this.id = id;
+  }
+
+  public String getTitle() {
+    return title;
+  }
+
+  public void setTitle(String title) {
+    this.title = title;
+  }
+
+  public String getContent() {
+    return content;
+  }
+
+  public void setContent(String content) {
+    this.content = content;
+  }
+
+  public String getContentHash() {
+    return contentHash;
+  }
+
+  public void setContentHash(String contentHash) {
+    this.contentHash = contentHash;
+  }
+
+  public Map<String, String> getMetadata() {
+    return metadata;
+  }
+
+  public void setMetadata(Map<String, String> metadata) {
+    this.metadata = metadata != null ? metadata : new HashMap<>();
+  }
+
+  public String getVectorId() {
+    return vectorId;
+  }
+
+  public void setVectorId(String vectorId) {
+    this.vectorId = vectorId;
+  }
+
+  public boolean isIndexed() {
+    return indexed;
+  }
+
+  public void setIndexed(boolean indexed) {
+    this.indexed = indexed;
+  }
+
+  public Instant getCreatedAt() {
+    return createdAt;
+  }
+
+  public void setCreatedAt(Instant createdAt) {
+    this.createdAt = createdAt;
+  }
+
+  public Instant getUpdatedAt() {
+    return updatedAt;
+  }
+
+  public void setUpdatedAt(Instant updatedAt) {
+    this.updatedAt = updatedAt;
+  }
 }

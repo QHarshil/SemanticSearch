@@ -3,6 +3,8 @@ package io.github.semanticsearch.controller;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -16,6 +18,8 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import io.github.semanticsearch.model.Document;
 import io.github.semanticsearch.repository.DocumentRepository;
 import io.github.semanticsearch.service.IndexService;
@@ -27,23 +31,26 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-
 /**
  * Controller for document management operations. Provides endpoints for CRUD operations on
  * documents.
  */
 @RestController
 @RequestMapping("/api/v1/documents")
-@RequiredArgsConstructor
 @Validated
-@Slf4j
 @Tag(name = "Document API", description = "API for document management operations")
 public class DocumentController {
 
+  private static final Logger log = LoggerFactory.getLogger(DocumentController.class);
+
   private final DocumentRepository documentRepository;
   private final IndexService indexService;
+
+  public DocumentController(
+      DocumentRepository documentRepository, IndexService indexService) {
+    this.documentRepository = documentRepository;
+    this.indexService = indexService;
+  }
 
   /**
    * Create a new document. Generates content hash and indexes the document for search.
@@ -68,6 +75,8 @@ public class DocumentController {
       })
   public ResponseEntity<Document> createDocument(@Valid @RequestBody Document document) {
     log.debug("Creating document: {}", document.getTitle());
+
+    document.setMetadata(normalizeMetadata(document.getMetadata()));
 
     // Generate content hash
     String contentHash = generateContentHash(document.getContent());
@@ -148,7 +157,7 @@ public class DocumentController {
               // Update fields
               existingDocument.setTitle(document.getTitle());
               existingDocument.setContent(document.getContent());
-              existingDocument.setMetadata(document.getMetadata());
+              existingDocument.setMetadata(normalizeMetadata(document.getMetadata()));
 
               // Generate new content hash
               String contentHash = generateContentHash(document.getContent());
@@ -270,6 +279,10 @@ public class DocumentController {
     Page<Document> documents =
         documentRepository.findByTitleOrContentContainingIgnoreCase(text, pageRequest);
     return ResponseEntity.ok(documents);
+  }
+
+  private Map<String, String> normalizeMetadata(Map<String, String> metadata) {
+    return metadata == null ? new HashMap<>() : metadata;
   }
 
   /**

@@ -3,6 +3,8 @@ package io.github.semanticsearch.service;
 import java.util.Collections;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
@@ -14,22 +16,23 @@ import com.theokanning.openai.service.OpenAiService;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-
 /**
  * Service for generating text embeddings using OpenAI API. Includes caching, retry, and circuit
  * breaker patterns.
  */
 @Service
-@RequiredArgsConstructor
-@Slf4j
 public class EmbeddingService {
+
+  private static final Logger log = LoggerFactory.getLogger(EmbeddingService.class);
 
   private final OpenAiService openAiService;
 
   @Value("${openai.embedding.model:text-embedding-ada-002}")
   private String embeddingModel;
+
+  public EmbeddingService(OpenAiService openAiService) {
+    this.openAiService = openAiService;
+  }
 
   /**
    * Generate embedding vector for the given text. Uses caching to avoid redundant API calls for the

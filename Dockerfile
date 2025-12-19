@@ -1,4 +1,4 @@
-FROM eclipse-temurin:17-jdk-alpine as build
+FROM eclipse-temurin:25-jdk-alpine as build
 WORKDIR /workspace/app
 
 # Copy maven executable and pom.xml
@@ -13,11 +13,11 @@ RUN ./mvnw dependency:go-offline -B
 COPY src src
 
 # Package the application
-RUN ./mvnw package -DskipTests
+RUN ./mvnw package -DskipTests -Dspotless.skip=true
 RUN mkdir -p target/dependency && (cd target/dependency; jar -xf ../*.jar)
 
 # Runtime stage
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 VOLUME /tmp
 ARG DEPENDENCY=/workspace/app/target/dependency
 

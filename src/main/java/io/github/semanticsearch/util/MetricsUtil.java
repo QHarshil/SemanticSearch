@@ -2,17 +2,18 @@ package io.github.semanticsearch.util;
 
 import java.util.function.Function;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * Utility class for monitoring and metrics. Provides methods for measuring and logging performance
  * metrics.
  */
 @Component
-@Slf4j
 public class MetricsUtil {
+
+  private static final Logger log = LoggerFactory.getLogger(MetricsUtil.class);
 
   /**
    * Measure execution time of a function.

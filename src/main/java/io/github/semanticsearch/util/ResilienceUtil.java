@@ -3,17 +3,18 @@ package io.github.semanticsearch.util;
 import java.util.concurrent.Callable;
 import java.util.function.Supplier;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * Utility class for resilience patterns. Provides methods for retry and circuit breaking without
  * external dependencies.
  */
 @Component
-@Slf4j
 public class ResilienceUtil {
+
+  private static final Logger log = LoggerFactory.getLogger(ResilienceUtil.class);
 
   /**
    * Execute with retry logic.

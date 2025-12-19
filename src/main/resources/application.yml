@@ -43,6 +43,7 @@ elasticsearch:
   index:
     name: semantic-search
     dimensions: 1536
+    auto-init: true
 
 openai:
   api:

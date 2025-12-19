@@ -7,6 +7,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import io.github.semanticsearch.model.Document;
 import io.github.semanticsearch.repository.DocumentRepository;
 
@@ -18,17 +23,14 @@ import co.elastic.clients.elasticsearch.indices.CreateIndexResponse;
 import co.elastic.clients.elasticsearch.indices.ExistsRequest;
 import co.elastic.clients.elasticsearch.indices.IndexSettings;
 import co.elastic.clients.transport.endpoints.BooleanResponse;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-
 /**
  * Service for indexing and managing document vectors in Elasticsearch. Handles document indexing,
  * updating, and deletion.
  */
 @Service
-@RequiredArgsConstructor
-@Slf4j
 public class IndexService {
+
+  private static final Logger log = LoggerFactory.getLogger(IndexService.class);
 
   private final ElasticsearchClient elasticsearchClient;
   private final EmbeddingService embeddingService;
@@ -40,10 +42,29 @@ public class IndexService {
   @Value("${elasticsearch.index.dimensions:1536}")
   private int dimensions;
 
+  @Value("${elasticsearch.stub-enabled:false}")
+  private boolean stubEnabled;
+
+  private final ConcurrentMap<String, List<Double>> stubVectors = new ConcurrentHashMap<>();
+  private final ConcurrentMap<UUID, String> stubDocToVector = new ConcurrentHashMap<>();
+
+  public IndexService(
+      ElasticsearchClient elasticsearchClient,
+      EmbeddingService embeddingService,
+      DocumentRepository documentRepository) {
+    this.elasticsearchClient = elasticsearchClient;
+    this.embeddingService = embeddingService;
+    this.documentRepository = documentRepository;
+  }
+
   /**
    * Initialize the Elasticsearch index if it doesn't exist. Sets up the vector search capabilities.
    */
   public void initializeIndex() {
+    if (stubEnabled) {
+      log.info("Elasticsearch stub enabled; skipping remote index initialization");
+      return;
+    }
     try {
       BooleanResponse existsResponse =
           elasticsearchClient.indices().exists(ExistsRequest.of(e -> e.index(indexName)));
@@ -92,6 +113,9 @@ public class IndexService {
    */
   @Transactional
   public Document indexDocument(Document document) {
+    if (stubEnabled) {
+      return indexDocumentInStub(document);
+    }
     try {
       // Generate embedding for document content
       List<Double> embedding = embeddingService.embed(document.getContent());
@@ -134,6 +158,12 @@ public class IndexService {
    */
   @Transactional
   public Document updateDocumentIndex(Document document) {
+    if (stubEnabled) {
+      if (document.getVectorId() != null) {
+        deleteDocumentVector(document.getVectorId());
+      }
+      return indexDocumentInStub(document);
+    }
     try {
       // Delete old vector if exists
       if (document.getVectorId() != null) {
@@ -155,6 +185,12 @@ public class IndexService {
    * @return True if deletion was successful
    */
   public boolean deleteDocumentVector(String vectorId) {
+    if (stubEnabled) {
+      stubVectors.remove(vectorId);
+      stubDocToVector.entrySet().removeIf(e -> e.getValue().equals(vectorId));
+      log.info("Stub document vector deleted: {}", vectorId);
+      return true;
+    }
     try {
       DeleteResponse response = elasticsearchClient.delete(d -> d.index(indexName).id(vectorId));
 
@@ -176,6 +212,9 @@ public class IndexService {
    */
   public List<Map.Entry<UUID, Double>> findSimilarDocuments(
       List<Double> queryVector, int limit, double minScore) {
+    if (stubEnabled) {
+      return findSimilarInStub(queryVector, limit, minScore);
+    }
     try {
       SearchResponse<Map> response =
           elasticsearchClient.search(
@@ -216,5 +255,63 @@ public class IndexService {
       log.error("Failed to find similar documents", e);
       return Collections.emptyList();
     }
+  }
+
+  private Document indexDocumentInStub(Document document) {
+    List<Double> embedding = embeddingService.embed(document.getContent());
+    if (embedding.isEmpty()) {
+      log.error("Failed to generate embedding for document: {}", document.getId());
+      return document;
+    }
+
+    String vectorId = UUID.randomUUID().toString();
+    stubVectors.put(vectorId, embedding);
+    stubDocToVector.put(document.getId(), vectorId);
+
+    document.setVectorId(vectorId);
+    document.setIndexed(true);
+    return documentRepository.save(document);
+  }
+
+  private List<Map.Entry<UUID, Double>> findSimilarInStub(
+      List<Double> queryVector, int limit, double minScore) {
+    List<Map.Entry<UUID, Double>> results = new ArrayList<>();
+    stubVectors.forEach(
+        (vectorId, stored) -> {
+          double score = cosineSimilarity(queryVector, stored);
+          if (score >= minScore) {
+            Optional<UUID> docId =
+                stubDocToVector.entrySet().stream()
+                    .filter(e -> e.getValue().equals(vectorId))
+                    .map(Map.Entry::getKey)
+                    .findFirst();
+            docId.ifPresent(id -> results.add(new AbstractMap.SimpleEntry<>(id, score)));
+          }
+        });
+
+    return results.stream()
+        .sorted((a, b) -> Double.compare(b.getValue(), a.getValue()))
+        .limit(Math.max(1, limit))
+        .toList();
+  }
+
+  private double cosineSimilarity(List<Double> a, List<Double> b) {
+    if (a == null || b == null || a.isEmpty() || b.isEmpty() || a.size() != b.size()) {
+      return 0.0;
+    }
+    double dot = 0.0;
+    double normA = 0.0;
+    double normB = 0.0;
+    for (int i = 0; i < a.size(); i++) {
+      double av = a.get(i);
+      double bv = b.get(i);
+      dot += av * bv;
+      normA += av * av;
+      normB += bv * bv;
+    }
+    if (normA == 0 || normB == 0) {
+      return 0.0;
+    }
+    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
   }
 }

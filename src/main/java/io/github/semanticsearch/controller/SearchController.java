@@ -7,6 +7,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import io.github.semanticsearch.model.SearchRequest;
 import io.github.semanticsearch.model.SearchResult;
 import io.github.semanticsearch.service.IndexService;
@@ -19,24 +21,30 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
 /**
  * Controller for search operations. Provides endpoints for semantic search and similar document
  * search.
  */
 @RestController
 @RequestMapping("/api/v1/search")
-@RequiredArgsConstructor
 @Validated
-@Slf4j
 @Tag(name = "Search API", description = "API for semantic search operations")
 public class SearchController {
 
+  private static final Logger log = LoggerFactory.getLogger(SearchController.class);
+
   private final SearchService searchService;
   private final IndexService indexService;
+
+  public SearchController(SearchService searchService, IndexService indexService) {
+    this.searchService = searchService;
+    this.indexService = indexService;
+  }
 
   /**
    * Perform semantic search based on query text.
@@ -58,13 +66,14 @@ public class SearchController {
             content = @Content(schema = @Schema(implementation = SearchResult.class)))
       })
   public ResponseEntity<List<SearchResult>> search(
-      @Parameter(description = "Search query text") @RequestParam String query,
+      @Parameter(description = "Search query text") @RequestParam @NotBlank String query,
       @Parameter(description = "Maximum number of results")
-          @RequestParam(defaultValue = "10")
-          @Min(1)
-          int limit,
-      @Parameter(description = "Minimum similarity score") @RequestParam(defaultValue = "0.7")
-          float minScore,
+          @RequestParam(defaultValue = "10") @Positive int limit,
+      @Parameter(description = "Minimum similarity score")
+          @RequestParam(defaultValue = "0.7")
+          @DecimalMin(value = "0.0")
+          @DecimalMax(value = "1.0")
+          double minScore,
       @Parameter(description = "Include document content") @RequestParam(defaultValue = "true")
           boolean includeContent,
       @Parameter(description = "Include text highlights") @RequestParam(defaultValue = "true")
@@ -133,8 +142,11 @@ public class SearchController {
           @RequestParam(defaultValue = "10")
           @Min(1)
           int limit,
-      @Parameter(description = "Minimum similarity score") @RequestParam(defaultValue = "0.7")
-          float minScore) {
+      @Parameter(description = "Minimum similarity score")
+          @RequestParam(defaultValue = "0.7")
+          @DecimalMin(value = "0.0")
+          @DecimalMax(value = "1.0")
+          double minScore) {
 
     log.debug("Similar documents request: id={}, limit={}, minScore={}", id, limit, minScore);
     List<SearchResult> results = searchService.findSimilarDocuments(id, limit, minScore);

@@ -4,27 +4,30 @@ A high-performance, AI-powered semantic search microservice built with Java and 
 
 ## Overview
 
-This project provides a robust semantic search capability using vector embeddings to find conceptually similar documents. It leverages OpenAI's embedding models for text vectorization and Elasticsearch for efficient vector search.
+This project provides a robust semantic search capability using vector embeddings to find conceptually similar documents. It leverages OpenAI's embedding models for text vectorization and Elasticsearch for efficient vector search, positioning you for search/ranking/personalization roles.
 
 ## Features
 
 - **Semantic Document Search**: Find documents based on meaning, not just keywords
 - **Vector Embeddings**: Convert text to vector representations using OpenAI's embedding models
 - **High Performance**: Optimized for speed and scalability with Elasticsearch
+- **Metadata Filters & Field Projection**: Filter results on document metadata and control which metadata keys are returned
 - **REST API**: Simple and intuitive API for document indexing and searching
 - **Resilient Design**: Circuit breakers and fallbacks for external service dependencies
 - **Monitoring**: Prometheus metrics and health endpoints
-- **Security**: Basic authentication and CORS configuration
+- **Security**: HTTP Basic authentication for document management, configurable CORS
 - **Swagger Documentation**: Interactive API documentation
 
 ## Getting Started
 
 ### Prerequisites
 
-- Java 17 or higher
-- Maven 3.6 or higher
+- Java 25 (Temurin recommended)
+- Maven 3.9+ (project ships with `./mvnw`)
 - Docker and Docker Compose (for containerized deployment)
 - OpenAI API key
+  - If you want to be prompted at startup instead, set `openai.api.prompt=true` and the app will ask for the key on the CLI.
+  - For offline/demo mode without OpenAI, you can still run, but embeddings will be empty unless you stub them yourself.
 
 ### Running Locally
 
@@ -34,7 +37,12 @@ This project provides a robust semantic search capability using vector embedding
    cd semantic-search-java
    ```
 
-2. Configure environment variables in `application.yml` or set them in your environment:
+2. Bring up backing services (PostgreSQL, Elasticsearch, Redis)
+   ```
+   docker-compose up -d postgres elasticsearch redis
+   ```
+
+3. Configure environment variables in `application.yml` or set them in your environment:
    ```
    POSTGRES_HOST=localhost
    POSTGRES_PORT=5432
@@ -46,17 +54,29 @@ This project provides a robust semantic search capability using vector embedding
    OPENAI_API_KEY=your_openai_api_key
    ```
 
-3. Build the application
+4. Build and test the application (uses the Maven wrapper for reproducible builds)
    ```
-   mvn clean package
+   ./mvnw clean verify -Dspotless.skip=true
    ```
 
-4. Run the application
+5. Run the application
    ```
    java -jar target/semantic-search-java-1.0.0.jar
    ```
 
-5. Access the application at http://localhost:8080
+6. Access the application at http://localhost:8080 (Swagger UI at `/swagger-ui.html`)
+
+   Default basic auth credentials (can be overridden via env vars):
+   ```
+   ADMIN_USER=admin
+   ADMIN_PASSWORD=admin
+   ```
+
+### Running in stub mode (no Elasticsearch)
+
+- Set `elasticsearch.stub-enabled=true` (env var `ELASTICSEARCH_STUB_ENABLED=true`).
+- The service will use an in-memory vector store for smoke testing; no Elasticsearch host is needed.
+- When you’re ready for real search, set the property back to `false` and provide `ELASTICSEARCH_HOST`/`ELASTICSEARCH_PORT`.
 
 ### Docker Deployment
 
@@ -91,14 +111,20 @@ See the [Architecture Documentation](docs/ARCHITECTURE.md) for more details.
 
 ## Tech Stack
 
-- **Java 17**: Core programming language
-- **Spring Boot 3**: Application framework
+- **Java 25**: Target runtime (compiled with `release 21` for tooling compatibility)
+- **Spring Boot 3.4**: Application framework
 - **Elasticsearch**: Vector database for document storage and search
 - **PostgreSQL**: Relational database for document metadata
 - **Redis**: Caching layer for improved performance
 - **OpenAI API**: Text embedding generation
 - **Docker**: Containerization
 - **React**: Frontend UI
+
+## Testing & Validation
+
+- Unit and integration-style tests use hand-rolled fakes (no Mockito/ByteBuddy) to stay compatible with Java 25.
+- Run the suite with `./mvnw clean verify -Dspotless.skip=true`; JaCoCo is wired but disabled by default to keep builds fast.
+- In-memory repositories and stub transports provide deterministic validation for controllers, services, and resilience utilities.
 
 ## Project Structure
 

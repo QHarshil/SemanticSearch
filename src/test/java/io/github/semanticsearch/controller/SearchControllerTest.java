@@ -1,16 +1,13 @@
 package io.github.semanticsearch.controller;
 
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.*;
 
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -19,22 +16,17 @@ import io.github.semanticsearch.model.SearchResult;
 import io.github.semanticsearch.service.IndexService;
 import io.github.semanticsearch.service.SearchService;
 
-@ExtendWith(MockitoExtension.class)
-public class SearchControllerTest {
+class SearchControllerTest {
 
-  @Mock private SearchService searchService;
-
-  @Mock private IndexService indexService;
-
-  @InjectMocks private SearchController searchController;
-
-  private SearchResult testResult;
+  private StubSearchService searchService;
+  private RecordingIndexService indexService;
+  private SearchController controller;
   private UUID documentId;
+  private SearchResult testResult;
 
   @BeforeEach
   void setUp() {
     documentId = UUID.randomUUID();
-
     testResult =
         SearchResult.builder()
             .id(documentId)
@@ -44,79 +36,98 @@ public class SearchControllerTest {
             .metadata(Map.of("key", "value"))
             .highlights(List.of("This is test content"))
             .build();
+
+    searchService = new StubSearchService(List.of(testResult));
+    indexService = new RecordingIndexService();
+    controller = new SearchController(searchService, indexService);
   }
 
   @Test
-  void testSearch_Success() {
-    // Arrange
-    when(searchService.search(any(SearchRequest.class))).thenReturn(List.of(testResult));
+  void search_buildsRequestAndReturnsResults() {
+    ResponseEntity<List<SearchResult>> response = controller.search("test", 10, 0.7, true, true);
 
-    // Act
-    ResponseEntity<List<SearchResult>> response =
-        searchController.search("test", 10, 0.7f, true, true);
-
-    // Assert
-    assert response.getStatusCode() == HttpStatus.OK;
-    assert response.getBody().size() == 1;
-    assert response.getBody().contains(testResult);
-    verify(searchService).search(any(SearchRequest.class));
+    assertEquals(HttpStatus.OK, response.getStatusCode());
+    assertEquals(1, response.getBody().size());
+    assertEquals("test", searchService.lastRequest.getQuery());
+    assertEquals(10, searchService.lastRequest.getLimit());
+    assertTrue(searchService.lastRequest.isIncludeContent());
   }
 
   @Test
-  void testAdvancedSearch_Success() {
-    // Arrange
+  void advancedSearch_usesBodyRequest() {
     SearchRequest request =
         SearchRequest.builder()
-            .query("test query")
-            .limit(10)
-            .minScore(0.7)
+            .query("advanced")
+            .limit(5)
+            .minScore(0.4)
             .filters(Map.of("category", "article"))
-            .fields(List.of("title", "content"))
-            .includeContent(true)
-            .includeHighlights(true)
+            .fields(List.of("title"))
+            .includeContent(false)
+            .includeHighlights(false)
             .build();
 
-    when(searchService.search(any(SearchRequest.class))).thenReturn(List.of(testResult));
+    ResponseEntity<List<SearchResult>> response = controller.advancedSearch(request);
 
-    // Act
-    ResponseEntity<List<SearchResult>> response = searchController.advancedSearch(request);
-
-    // Assert
-    assert response.getStatusCode() == HttpStatus.OK;
-    assert response.getBody().size() == 1;
-    assert response.getBody().contains(testResult);
-    verify(searchService).search(any(SearchRequest.class));
+    assertEquals(HttpStatus.OK, response.getStatusCode());
+    assertEquals(request, searchService.lastRequest);
+    assertEquals(1, response.getBody().size());
   }
 
   @Test
-  void testFindSimilar_Success() {
-    // Arrange
-    when(searchService.findSimilarDocuments(eq(documentId), anyInt(), anyDouble()))
-        .thenReturn(List.of(testResult));
+  void findSimilar_delegatesToService() {
+    ResponseEntity<List<SearchResult>> response = controller.findSimilar(documentId, 3, 0.6);
 
-    // Act
-    ResponseEntity<List<SearchResult>> response =
-        searchController.findSimilar(documentId, 10, 0.7f);
-
-    // Assert
-    assert response.getStatusCode() == HttpStatus.OK;
-    assert response.getBody().size() == 1;
-    assert response.getBody().contains(testResult);
-    // Use anyDouble() instead of eq(0.7) to handle float-to-double conversion precision issues
-    verify(searchService).findSimilarDocuments(eq(documentId), eq(10), anyDouble());
+    assertEquals(HttpStatus.OK, response.getStatusCode());
+    assertEquals(documentId, searchService.lastSimilarId);
+    assertEquals(3, searchService.lastLimit);
+    assertEquals(0.6, searchService.lastMinScore);
   }
 
   @Test
-  void testRebuildIndex_Success() {
-    // Arrange
-    doNothing().when(indexService).initializeIndex();
+  void rebuildIndex_callsInitializer() {
+    ResponseEntity<String> response = controller.rebuildIndex();
 
-    // Act
-    ResponseEntity<String> response = searchController.rebuildIndex();
+    assertEquals(HttpStatus.OK, response.getStatusCode());
+    assertTrue(indexService.initializeCalled);
+  }
 
-    // Assert
-    assert response.getStatusCode() == HttpStatus.OK;
-    assert response.getBody().equals("Index rebuilt successfully");
-    verify(indexService).initializeIndex();
+  private static class StubSearchService extends SearchService {
+    SearchRequest lastRequest;
+    UUID lastSimilarId;
+    int lastLimit;
+    double lastMinScore;
+    private final List<SearchResult> cannedResults;
+
+    StubSearchService(List<SearchResult> cannedResults) {
+      super(null, null, null);
+      this.cannedResults = cannedResults;
+    }
+
+    @Override
+    public List<SearchResult> search(SearchRequest request) {
+      this.lastRequest = request;
+      return cannedResults;
+    }
+
+    @Override
+    public List<SearchResult> findSimilarDocuments(UUID documentId, int limit, double minScore) {
+      this.lastSimilarId = documentId;
+      this.lastLimit = limit;
+      this.lastMinScore = minScore;
+      return cannedResults;
+    }
+  }
+
+  private static class RecordingIndexService extends IndexService {
+    boolean initializeCalled = false;
+
+    RecordingIndexService() {
+      super(null, null, null);
+    }
+
+    @Override
+    public void initializeIndex() {
+      initializeCalled = true;
+    }
   }
 }

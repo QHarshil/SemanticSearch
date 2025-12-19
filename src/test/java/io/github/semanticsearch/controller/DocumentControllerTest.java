@@ -1,183 +1,188 @@
 package io.github.semanticsearch.controller;
 
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.*;
 
-import java.util.*;
+import java.util.AbstractMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.server.ResponseStatusException;
 
 import io.github.semanticsearch.model.Document;
-import io.github.semanticsearch.repository.DocumentRepository;
 import io.github.semanticsearch.service.IndexService;
+import io.github.semanticsearch.support.InMemoryDocumentRepository;
 
-@ExtendWith(MockitoExtension.class)
-public class DocumentControllerTest {
+class DocumentControllerTest {
 
-  @Mock private DocumentRepository documentRepository;
-
-  @Mock private IndexService indexService;
-
-  @InjectMocks private DocumentController documentController;
-
-  private Document testDocument;
-  private UUID documentId;
+  private InMemoryDocumentRepository repository;
+  private RecordingIndexService indexService;
+  private DocumentController controller;
 
   @BeforeEach
   void setUp() {
-    documentId = UUID.randomUUID();
-
-    testDocument = new Document();
-    testDocument.setId(documentId);
-    testDocument.setTitle("Test Document");
-    testDocument.setContent("This is a test document content");
-    testDocument.setContentHash("test-hash");
-    testDocument.setMetadata(Map.of("key", "value"));
+    repository = new InMemoryDocumentRepository();
+    indexService = new RecordingIndexService();
+    controller = new DocumentController(repository, indexService);
   }
 
   @Test
-  void testCreateDocument_Success() {
-    // Arrange
-    Document inputDocument = new Document();
-    inputDocument.setTitle("New Document");
-    inputDocument.setContent("This is new content");
-    inputDocument.setMetadata(Map.of("key", "value"));
+  void createDocument_setsHashAndIndexes() {
+    Document input = new Document();
+    input.setTitle("New Document");
+    input.setContent("This is new content");
+    input.setMetadata(Map.of("key", "value"));
 
-    when(documentRepository.findByContentHash(anyString())).thenReturn(Optional.empty());
-    when(documentRepository.save(any(Document.class))).thenReturn(inputDocument);
-    when(indexService.indexDocument(any(Document.class))).thenReturn(inputDocument);
+    ResponseEntity<Document> response = controller.createDocument(input);
 
-    // Act
-    ResponseEntity<Document> response = documentController.createDocument(inputDocument);
-
-    // Assert
-    assert response.getStatusCode() == HttpStatus.CREATED;
-    assert response.getBody() == inputDocument;
-    verify(documentRepository).findByContentHash(anyString());
-    verify(documentRepository).save(any(Document.class));
-    verify(indexService).indexDocument(any(Document.class));
+    assertEquals(HttpStatus.CREATED, response.getStatusCode());
+    Document saved = response.getBody();
+    assertNotNull(saved);
+    assertTrue(saved.isIndexed());
+    assertNotNull(saved.getVectorId());
+    assertEquals(1, repository.count());
+    assertEquals(saved.getId(), indexService.lastIndexedId);
   }
 
   @Test
-  void testCreateDocument_DuplicateContent() {
-    // Arrange
-    Document inputDocument = new Document();
-    inputDocument.setTitle("New Document");
-    inputDocument.setContent("This is new content");
+  void createDocument_rejectsDuplicateContent() {
+    Document first = new Document();
+    first.setTitle("Title");
+    first.setContent("Duplicate body");
+    controller.createDocument(first);
 
-    when(documentRepository.findByContentHash(anyString())).thenReturn(Optional.of(testDocument));
+    Document duplicate = new Document();
+    duplicate.setTitle("Duplicate title");
+    duplicate.setContent("Duplicate body");
 
-    // Act & Assert
-    try {
-      documentController.createDocument(inputDocument);
-      assert false : "Expected ResponseStatusException was not thrown";
-    } catch (ResponseStatusException e) {
-      assert e.getStatusCode() == HttpStatus.CONFLICT;
+    ResponseStatusException ex =
+        assertThrows(ResponseStatusException.class, () -> controller.createDocument(duplicate));
+
+    assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+    assertEquals(1, repository.count());
+  }
+
+  @Test
+  void getDocument_returnsDocument() {
+    Document created = controller.createDocument(makeDocument("Doc 1", "body")).getBody();
+    assertNotNull(created);
+
+    ResponseEntity<Document> response = controller.getDocument(created.getId());
+
+    assertEquals(HttpStatus.OK, response.getStatusCode());
+    assertEquals(created.getId(), response.getBody().getId());
+  }
+
+  @Test
+  void getDocument_notFound() {
+    UUID missing = UUID.randomUUID();
+    ResponseStatusException ex =
+        assertThrows(ResponseStatusException.class, () -> controller.getDocument(missing));
+    assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode());
+  }
+
+  @Test
+  void updateDocument_reindexesAndPersistsChanges() {
+    Document created = controller.createDocument(makeDocument("Doc 1", "body")).getBody();
+    assertNotNull(created);
+
+    Document update = new Document();
+    update.setTitle("Updated");
+    update.setContent("Updated content");
+    update.setMetadata(Map.of("author", "alice"));
+
+    ResponseEntity<Document> response = controller.updateDocument(created.getId(), update);
+
+    assertEquals(HttpStatus.OK, response.getStatusCode());
+    Document updated = response.getBody();
+    assertNotNull(updated);
+    assertEquals("Updated", updated.getTitle());
+    assertEquals("Updated content", updated.getContent());
+    assertEquals("alice", updated.getMetadata().get("author"));
+    assertEquals(updated.getId(), indexService.lastUpdatedId);
+  }
+
+  @Test
+  void deleteDocument_removesFromRepositoryAndIndex() {
+    Document created = controller.createDocument(makeDocument("Doc 1", "body")).getBody();
+    assertNotNull(created);
+
+    ResponseEntity<Void> response = controller.deleteDocument(created.getId());
+
+    assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
+    assertEquals(0, repository.count());
+    assertEquals(created.getVectorId(), indexService.deletedVectorId);
+  }
+
+  @Test
+  void listDocuments_returnsPage() {
+    controller.createDocument(makeDocument("Doc 1", "body"));
+    controller.createDocument(makeDocument("Doc 2", "body two"));
+
+    ResponseEntity<Page<Document>> response = controller.listDocuments(0, 1, "createdAt", "DESC");
+
+    assertEquals(HttpStatus.OK, response.getStatusCode());
+    assertEquals(2, response.getBody().getTotalElements());
+    assertEquals(1, response.getBody().getContent().size());
+  }
+
+  @Test
+  void searchDocuments_returnsEmptyForBlankQuery() {
+    ResponseEntity<Page<Document>> response = controller.searchDocuments("", 0, 10);
+    assertTrue(response.getBody().isEmpty());
+  }
+
+  private Document makeDocument(String title, String content) {
+    Document doc = new Document();
+    doc.setTitle(title);
+    doc.setContent(content);
+    doc.setMetadata(Map.of());
+    return doc;
+  }
+
+  private static class RecordingIndexService extends IndexService {
+    UUID lastIndexedId;
+    UUID lastUpdatedId;
+    String deletedVectorId;
+
+    RecordingIndexService() {
+      super(null, null, null);
     }
 
-    verify(documentRepository).findByContentHash(anyString());
-    verify(documentRepository, never()).save(any(Document.class));
-    verify(indexService, never()).indexDocument(any(Document.class));
-  }
-
-  @Test
-  void testGetDocument_Success() {
-    // Arrange
-    when(documentRepository.findById(documentId)).thenReturn(Optional.of(testDocument));
-
-    // Act
-    ResponseEntity<Document> response = documentController.getDocument(documentId);
-
-    // Assert
-    assert response.getStatusCode() == HttpStatus.OK;
-    assert response.getBody() == testDocument;
-    verify(documentRepository).findById(documentId);
-  }
-
-  @Test
-  void testGetDocument_NotFound() {
-    // Arrange
-    when(documentRepository.findById(documentId)).thenReturn(Optional.empty());
-
-    // Act & Assert
-    try {
-      documentController.getDocument(documentId);
-      assert false : "Expected ResponseStatusException was not thrown";
-    } catch (ResponseStatusException e) {
-      assert e.getStatusCode() == HttpStatus.NOT_FOUND;
+    @Override
+    public Document indexDocument(Document document) {
+      document.setIndexed(true);
+      if (document.getVectorId() == null) {
+        document.setVectorId("vector-" + document.getId());
+      }
+      lastIndexedId = document.getId();
+      return document;
     }
 
-    verify(documentRepository).findById(documentId);
-  }
+    @Override
+    public Document updateDocumentIndex(Document document) {
+      lastUpdatedId = document.getId();
+      return indexDocument(document);
+    }
 
-  @Test
-  void testUpdateDocument_Success() {
-    // Arrange
-    Document updateDocument = new Document();
-    updateDocument.setTitle("Updated Title");
-    updateDocument.setContent("Updated content");
-    updateDocument.setMetadata(Map.of("key", "updated"));
+    @Override
+    public boolean deleteDocumentVector(String vectorId) {
+      deletedVectorId = vectorId;
+      return true;
+    }
 
-    when(documentRepository.findById(documentId)).thenReturn(Optional.of(testDocument));
-    when(documentRepository.save(any(Document.class))).thenReturn(testDocument);
-    when(indexService.updateDocumentIndex(any(Document.class))).thenReturn(testDocument);
+    @Override
+    public void initializeIndex() {}
 
-    // Act
-    ResponseEntity<Document> response =
-        documentController.updateDocument(documentId, updateDocument);
-
-    // Assert
-    assert response.getStatusCode() == HttpStatus.OK;
-    assert response.getBody() == testDocument;
-    verify(documentRepository).findById(documentId);
-    verify(documentRepository).save(any(Document.class));
-    verify(indexService).updateDocumentIndex(any(Document.class));
-  }
-
-  @Test
-  void testDeleteDocument_Success() {
-    // Arrange
-    testDocument.setVectorId("test-vector-id");
-    when(documentRepository.findById(documentId)).thenReturn(Optional.of(testDocument));
-    when(indexService.deleteDocumentVector(anyString())).thenReturn(true);
-    doNothing().when(documentRepository).delete(any(Document.class));
-
-    // Act
-    ResponseEntity<Void> response = documentController.deleteDocument(documentId);
-
-    // Assert
-    assert response.getStatusCode() == HttpStatus.NO_CONTENT;
-    verify(documentRepository).findById(documentId);
-    verify(indexService).deleteDocumentVector("test-vector-id");
-    verify(documentRepository).delete(testDocument);
-  }
-
-  @Test
-  void testListDocuments_Success() {
-    // Arrange
-    List<Document> documents = Arrays.asList(testDocument);
-    PageImpl<Document> page = new PageImpl<>(documents, PageRequest.of(0, 10), 1);
-
-    when(documentRepository.findAll(any(PageRequest.class))).thenReturn(page);
-
-    // Act
-    ResponseEntity<org.springframework.data.domain.Page<Document>> response =
-        documentController.listDocuments(0, 10, "createdAt", "DESC");
-
-    // Assert
-    assert response.getStatusCode() == HttpStatus.OK;
-    assert response.getBody().getTotalElements() == 1;
-    assert response.getBody().getContent().get(0) == testDocument;
-    verify(documentRepository).findAll(any(PageRequest.class));
+    @Override
+    public List<Map.Entry<UUID, Double>> findSimilarDocuments(
+        List<Double> queryVector, int limit, double minScore) {
+      return List.of(new AbstractMap.SimpleEntry<>(UUID.randomUUID(), 1.0));
+    }
   }
 }

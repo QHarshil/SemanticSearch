@@ -21,6 +21,9 @@ public class OpenAiConfig {
   @Value("${openai.api.key}")
   private String apiKey;
 
+  @Value("${openai.api.prompt:false}")
+  private boolean promptForApiKey;
+
   @Value("${openai.timeout:30}")
   private int timeout;
 
@@ -31,7 +34,8 @@ public class OpenAiConfig {
    */
   @Bean
   public OpenAiService openAiService() {
-    return new OpenAiService(apiKey, Duration.ofSeconds(timeout));
+    String resolvedKey = resolveApiKey();
+    return new OpenAiService(resolvedKey, Duration.ofSeconds(timeout));
   }
 
   /**
@@ -64,5 +68,22 @@ public class OpenAiConfig {
         .permittedNumberOfCallsInHalfOpenState(5)
         .slidingWindowSize(10)
         .build();
+  }
+
+  private String resolveApiKey() {
+    if (apiKey != null && !apiKey.isBlank()) {
+      return apiKey;
+    }
+    if (promptForApiKey) {
+      var console = System.console();
+      if (console != null) {
+        char[] entered = console.readPassword("Enter OpenAI API key: ");
+        if (entered != null && entered.length > 0) {
+          return new String(entered);
+        }
+      }
+    }
+    throw new IllegalStateException(
+        "OpenAI API key is required. Set openai.api.key or enable openai.api.prompt=true for interactive entry.");
   }
 }

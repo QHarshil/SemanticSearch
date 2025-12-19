@@ -5,10 +5,12 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -44,16 +46,13 @@ public class SecurityConfig {
         .csrf(AbstractHttpConfigurer::disable)
         .sessionManagement(
             session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        .httpBasic(Customizer.withDefaults())
         .authorizeHttpRequests(
             auth ->
                 auth
-                    // Public endpoints
-                    .requestMatchers("/api/v1/search")
+                    // Public search endpoints
+                    .requestMatchers(HttpMethod.GET, "/api/v1/search", "/api/v1/search/similar/**")
                     .permitAll()
-                    .requestMatchers("/api/v1/search/similar/**")
-                    .permitAll()
-                    .requestMatchers("/api/v1/documents/**")
-                    .permitAll() // For demo purposes
 
                     // Swagger/OpenAPI endpoints
                     .requestMatchers("/swagger-ui/**")
@@ -71,6 +70,10 @@ public class SecurityConfig {
 
                     // Admin endpoints
                     .requestMatchers("/api/v1/search/index/rebuild")
+                    .authenticated()
+
+                    // Document management requires authentication
+                    .requestMatchers("/api/v1/documents/**")
                     .authenticated()
 
                     // All other endpoints require authentication
