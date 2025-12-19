@@ -1,15 +1,15 @@
 # Semantic Search Java
 
-A high-performance, AI-powered semantic search microservice built with Java and Spring Boot.
+A high-performance semantic search microservice built with Java and Spring Boot.
 
 ## Overview
 
-This project provides a robust semantic search capability using vector embeddings to find conceptually similar documents. It leverages OpenAI's embedding models for text vectorization and Elasticsearch for efficient vector search, positioning you for search/ranking/personalization roles.
+This project provides a robust semantic search capability using vector embeddings to find conceptually similar documents. It leverages an embedding provider for text vectorization and Elasticsearch for efficient vector search, positioning you for search/ranking/personalization roles.
 
 ## Features
 
 - **Semantic Document Search**: Find documents based on meaning, not just keywords
-- **Vector Embeddings**: Convert text to vector representations using OpenAI's embedding models
+- **Vector Embeddings**: Convert text to vector representations via a pluggable embedding provider
 - **High Performance**: Optimized for speed and scalability with Elasticsearch
 - **Metadata Filters & Field Projection**: Filter results on document metadata and control which metadata keys are returned
 - **REST API**: Simple and intuitive API for document indexing and searching
@@ -22,12 +22,12 @@ This project provides a robust semantic search capability using vector embedding
 
 ### Prerequisites
 
-- Java 25 (Temurin recommended)
+- Java 25 (Temurin recommended) for runtime; build with JDK 21 for Maven tooling compatibility
 - Maven 3.9+ (project ships with `./mvnw`)
 - Docker and Docker Compose (for containerized deployment)
-- OpenAI API key
-  - If you want to be prompted at startup instead, set `openai.api.prompt=true` and the app will ask for the key on the CLI.
-  - For offline/demo mode without OpenAI, you can still run, but embeddings will be empty unless you stub them yourself.
+- Embedding provider API key
+  - If you want to be prompted at startup instead, set `embedding.api.prompt=true` and the app will ask for the key on the CLI.
+- For offline/demo mode without a remote embedding provider, you can still run, but embeddings will be empty unless you stub them yourself.
 
 ### Running Locally
 
@@ -51,7 +51,7 @@ This project provides a robust semantic search capability using vector embedding
    POSTGRES_PASSWORD=postgres
    ELASTICSEARCH_HOST=localhost
    ELASTICSEARCH_PORT=9200
-   OPENAI_API_KEY=your_openai_api_key
+   EMBEDDING_API_KEY=your_embedding_api_key
    ```
 
 4. Build and test the application (uses the Maven wrapper for reproducible builds)
@@ -116,7 +116,7 @@ See the [Architecture Documentation](docs/ARCHITECTURE.md) for more details.
 - **Elasticsearch**: Vector database for document storage and search
 - **PostgreSQL**: Relational database for document metadata
 - **Redis**: Caching layer for improved performance
-- **OpenAI API**: Text embedding generation
+- **Embedding provider API**: Text embedding generation (default client configured via `embedding.*`)
 - **Docker**: Containerization
 - **React**: Frontend UI
 

@@ -32,7 +32,7 @@ The Semantic Search Java application follows a layered architecture pattern with
             ▼                     ▼                     ▼
 ┌──────────────────┐  ┌─────────────────────┐  ┌─────────────────┐
 │                  │  │                     │  │                 │
-│    OpenAI API    │  │    Elasticsearch    │  │   PostgreSQL    │
+│ Embedding API    │  │    Elasticsearch    │  │   PostgreSQL    │
 │                  │  │                     │  │                 │
 └──────────────────┘  └─────────────────────┘  └─────────────────┘
 ```
@@ -65,7 +65,7 @@ The service layer contains the business logic of the application.
 #### EmbeddingService
 - **Responsibility**: Generates vector embeddings from text
 - **Key Functions**:
-  - Convert text to vector embeddings using OpenAI's models
+  - Convert text to vector embeddings using the configured provider
   - Implement resilience patterns for API calls
   - Cache frequently used embeddings
 
@@ -93,7 +93,7 @@ The service layer contains the business logic of the application.
 
 ### 4. External Services
 
-#### OpenAI API
+#### Embedding provider API
 - **Usage**: Generates vector embeddings from text
 - **Integration**: REST API calls with resilience patterns (circuit breaker, retry)
 
@@ -117,7 +117,7 @@ The service layer contains the business logic of the application.
 2. DocumentController validates the request and passes it to IndexService
 3. IndexService stores document metadata in PostgreSQL via DocumentRepository
 4. IndexService requests vector embedding from EmbeddingService
-5. EmbeddingService calls OpenAI API to generate the embedding
+5. EmbeddingService calls the embedding provider to generate the embedding
 6. IndexService stores the document with its embedding in Elasticsearch
 7. Response with document ID is returned to the client
 
@@ -126,7 +126,7 @@ The service layer contains the business logic of the application.
 1. Client submits a search query through the SearchController
 2. SearchController validates the request and passes it to SearchService
 3. SearchService requests vector embedding for the query from EmbeddingService
-4. EmbeddingService calls OpenAI API to generate the embedding
+4. EmbeddingService calls the embedding provider to generate the embedding
 5. SearchService performs a vector similarity search in Elasticsearch
 6. SearchService retrieves matching document metadata from PostgreSQL
 7. Ranked search results are returned to the client

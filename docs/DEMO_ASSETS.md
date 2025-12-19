@@ -74,7 +74,7 @@ The application comes pre-loaded with sample documents covering various topics t
    - News articles on environmental impacts
 
 2. **Technology Articles**
-   - AI and machine learning developments
+   - Search relevance and machine learning developments
    - Software engineering best practices
    - Technology trend analyses
 
@@ -166,7 +166,7 @@ docker run -d -p 8080:8080 \
   -e SPRING_DATASOURCE_USERNAME=postgres \
   -e SPRING_DATASOURCE_PASSWORD=password \
   -e ELASTICSEARCH_HOST=elasticsearch \
-  -e OPENAI_API_KEY=your-api-key \
+  -e EMBEDDING_API_KEY=your-api-key \
   yourusername/semantic-search-java:latest
 ```
 

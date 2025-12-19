@@ -17,8 +17,8 @@ import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 
 /**
- * Service for generating text embeddings using OpenAI API. Includes caching, retry, and circuit
- * breaker patterns.
+ * Service for generating text embeddings via the configured provider. Includes caching, retry, and
+ * circuit breaker patterns.
  */
 @Service
 public class EmbeddingService {
@@ -56,7 +56,7 @@ public class EmbeddingService {
     List<Embedding> embeddings = openAiService.createEmbeddings(request).getData();
 
     if (embeddings.isEmpty()) {
-      log.warn("No embeddings returned from OpenAI API");
+    log.warn("No embeddings returned from embedding provider");
       return Collections.emptyList();
     }
 
@@ -67,7 +67,7 @@ public class EmbeddingService {
   }
 
   /**
-   * Fallback method for embedding generation when OpenAI API fails. Returns an empty list as
+   * Fallback method for embedding generation when the provider fails. Returns an empty list as
    * fallback.
    *
    * @param text Text that was being embedded

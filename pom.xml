@@ -14,7 +14,7 @@
     <artifactId>semantic-search-java</artifactId>
     <version>1.0.0</version>
     <name>semantic-search-java</name>
-    <description>AI-Powered Semantic Search Microservice in Java</description>
+    <description>Semantic Search Microservice in Java</description>
     
     <properties>
         <java.version>25</java.version>
@@ -78,7 +78,7 @@
             <version>${elasticsearch.version}</version>
         </dependency>
         
-        <!-- OpenAI -->
+        <!-- Embedding provider client -->
         <dependency>
             <groupId>com.theokanning.openai-gpt3-java</groupId>
             <artifactId>service</artifactId>

@@ -3,7 +3,7 @@ spring:
     allow-bean-definition-overriding: true
   application:
     name: Semantic Search Java
-    description: AI-Powered Semantic Search Microservice in Java
+    description: Semantic Search Microservice in Java
     version: 1.0.0
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:semanticsearch}
@@ -45,9 +45,9 @@ elasticsearch:
     dimensions: 1536
     auto-init: true
 
-openai:
+embedding:
   api:
-    key: ${OPENAI_API_KEY:}
+    key: ${EMBEDDING_API_KEY:}
   timeout: 30
   embedding:
     model: text-embedding-ada-002

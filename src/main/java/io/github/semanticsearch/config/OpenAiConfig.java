@@ -13,36 +13,29 @@ import io.github.resilience4j.retry.RetryConfig;
 import io.github.resilience4j.retry.RetryRegistry;
 
 /**
- * Configuration for OpenAI client. Sets up the OpenAI client with API key and resilience patterns.
+ * Configuration for the embedding provider client. Sets up the client with API key and resilience
+ * patterns.
  */
 @Configuration
 public class OpenAiConfig {
 
-  @Value("${openai.api.key}")
+  @Value("${embedding.api.key:${openai.api.key:}}")
   private String apiKey;
 
-  @Value("${openai.api.prompt:false}")
+  @Value("${embedding.api.prompt:${openai.api.prompt:false}}")
   private boolean promptForApiKey;
 
   @Value("${openai.timeout:30}")
   private int timeout;
 
-  /**
-   * Creates and configures the OpenAI service.
-   *
-   * @return Configured OpenAiService
-   */
+  /** Creates and configures the embedding provider service. */
   @Bean
   public OpenAiService openAiService() {
     String resolvedKey = resolveApiKey();
     return new OpenAiService(resolvedKey, Duration.ofSeconds(timeout));
   }
 
-  /**
-   * Creates retry configuration for OpenAI API calls.
-   *
-   * @return RetryRegistry with configured retry policies
-   */
+  /** Creates retry configuration for embedding API calls. */
   @Bean
   public RetryRegistry retryRegistry() {
     RetryConfig retryConfig =
@@ -55,11 +48,7 @@ public class OpenAiConfig {
     return RetryRegistry.of(retryConfig);
   }
 
-  /**
-   * Creates circuit breaker configuration for OpenAI API calls.
-   *
-   * @return CircuitBreakerConfig
-   */
+  /** Creates circuit breaker configuration for embedding API calls. */
   @Bean
   public CircuitBreakerConfig circuitBreakerConfig() {
     return CircuitBreakerConfig.custom()
@@ -77,13 +66,13 @@ public class OpenAiConfig {
     if (promptForApiKey) {
       var console = System.console();
       if (console != null) {
-        char[] entered = console.readPassword("Enter OpenAI API key: ");
+        char[] entered = console.readPassword("Enter embedding API key: ");
         if (entered != null && entered.length > 0) {
           return new String(entered);
         }
       }
     }
     throw new IllegalStateException(
-        "OpenAI API key is required. Set openai.api.key or enable openai.api.prompt=true for interactive entry.");
+        "Embedding API key is required. Set embedding.api.key (or openai.api.key) or enable embedding.api.prompt=true for interactive entry.");
   }
 }

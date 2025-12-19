@@ -17,7 +17,7 @@ public class OpenApiConfig {
   @Value("${spring.application.name:Semantic Search Java}")
   private String applicationName;
 
-  @Value("${spring.application.description:AI-Powered Semantic Search Microservice in Java}")
+  @Value("${spring.application.description:Semantic Search Microservice in Java}")
   private String applicationDescription;
 
   @Value("${spring.application.version:1.0.0}")
