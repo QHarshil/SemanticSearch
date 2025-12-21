@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     
     steps:
     - uses: actions/checkout@v4
@@ -28,7 +30,7 @@ jobs:
       run: ./mvnw -B clean verify -Dspotless.skip=true
     
     - name: Run security scan
-      uses: aquasecurity/trivy-action@master
+      uses: aquasecurity/trivy-action@v0.24.0
       with:
         scan-type: 'fs'
         format: 'table'
@@ -62,6 +64,9 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     
     steps:
     - uses: actions/checkout@v4
