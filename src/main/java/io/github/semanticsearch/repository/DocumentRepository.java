@@ -66,4 +66,7 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
    * @return Optional document if found
    */
   Optional<Document> findByVectorId(String vectorId);
+
+  /** Find by exact title. */
+  Optional<Document> findByTitle(String title);
 }

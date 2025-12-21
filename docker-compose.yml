@@ -24,7 +24,7 @@ services:
       - redis
 
   postgres:
-    image: postgres:15-alpine
+    image: postgres:15.4-alpine
     ports:
       - "5432:5432"
     environment:

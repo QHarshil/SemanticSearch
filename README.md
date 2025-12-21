@@ -1,6 +1,6 @@
 # Semantic Search Java
 
-A high-performance semantic search microservice built with Java and Spring Boot.
+A high-performance semantic search microservice built with Java and Spring Boot. The bundled React UI is already compiled into the jar and served at `/`, so recruiters can click and try it without any frontend build steps.
 
 ## Overview
 
@@ -17,62 +17,35 @@ This project provides a robust semantic search capability using vector embedding
 - **Monitoring**: Prometheus metrics and health endpoints
 - **Security**: HTTP Basic authentication for document management, configurable CORS
 - **Swagger Documentation**: Interactive API documentation
+- **Hybrid Scoring**: Optional blending of vector and lexical signals plus metadata boosts
+- **Eval Harness**: Built-in MRR/NDCG@k over a small gold set; reports exported from CI
+- **Relevance Tuning**: BM25-style lexical scoring, recency decay, A/B-friendly scoring profiles
 
-## Getting Started
+## Getting Started (fast demo)
 
-### Prerequisites
+1) Build (backend + precompiled React UI are packaged together):
+```
+./mvnw clean package -Dspotless.skip=true
+```
+2) Run in local demo mode (no auth, no external search stack, schema auto-created):
+```
+SECURITY_AUTH_ENABLED=false \
+MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENABLED=false \
+SPRING_PROFILES_ACTIVE=local \
+SPRING_FLYWAY_ENABLED=false \
+SPRING_JPA_HIBERNATE_DDL_AUTO=update \
+ELASTICSEARCH_STUB_ENABLED=true \
+EMBEDDING_STUB_ENABLED=true \
+java -jar target/semantic-search-java-1.0.0.jar
+```
+3) Open the UI at http://localhost:8080/ (served from the bundled React build). Swagger UI is at `/swagger-ui.html`. Default basic auth (if you turn auth on) is `admin` / `admin`.
 
-- Java 25 (Temurin recommended) for runtime; build with JDK 21 for Maven tooling compatibility
-- Maven 3.9+ (project ships with `./mvnw`)
-- Docker and Docker Compose (for containerized deployment)
-- Embedding provider API key
-  - If you want to be prompted at startup instead, set `embedding.api.prompt=true` and the app will ask for the key on the CLI.
-- For offline/demo mode without a remote embedding provider, you can still run, but embeddings will be empty unless you stub them yourself.
-
-### Running Locally
-
-1. Clone the repository
-   ```
-   git clone https://github.com/QHarshil/SemanticSearch-Java.git
-   cd semantic-search-java
-   ```
-
-2. Bring up backing services (PostgreSQL, Elasticsearch, Redis)
-   ```
-   docker-compose up -d postgres elasticsearch redis
-   ```
-
-3. Configure environment variables in `application.yml` or set them in your environment:
-   ```
-   POSTGRES_HOST=localhost
-   POSTGRES_PORT=5432
-   POSTGRES_DB=semanticsearch
-   POSTGRES_USER=postgres
-   POSTGRES_PASSWORD=postgres
-   ELASTICSEARCH_HOST=localhost
-   ELASTICSEARCH_PORT=9200
-   ELASTICSEARCH_STUB_ENABLED=false
-   EMBEDDING_API_KEY=your_embedding_api_key
-   EMBEDDING_STUB_ENABLED=false
-   ```
-
-4. Build and test the application (uses the Maven wrapper for reproducible builds)
-   ```
-   ./mvnw clean verify -Dspotless.skip=true
-   ```
-
-5. Run the application
-   ```
-   java -jar target/semantic-search-java-1.0.0.jar
-   ```
-
-6. Access the application at http://localhost:8080 (Swagger UI at `/swagger-ui.html`)
-
-   Default basic auth credentials (can be overridden via env vars):
-   ```
-   ADMIN_USER=admin
-   ADMIN_PASSWORD=admin
-   ```
+### Running with real services
+- Bring up backing services:
+  ```
+  docker-compose up -d postgres elasticsearch redis
+  ```
+- Set `ELASTICSEARCH_STUB_ENABLED=false` and provide your connection details via environment variables (`POSTGRES_*`, `ELASTICSEARCH_*`). Keep `EMBEDDING_STUB_ENABLED=true` if you want local deterministic vectors; set it to `false` if you are supplying a real embedding provider.
 
 ### Running in stub mode (no Elasticsearch)
 
@@ -80,6 +53,24 @@ This project provides a robust semantic search capability using vector embedding
 - The service will use an in-memory vector store for smoke testing; no Elasticsearch host is needed.
 - When you’re ready for real search, set the property back to `false` and provide `ELASTICSEARCH_HOST`/`ELASTICSEARCH_PORT`.
 - For offline embedding without a provider key, keep `EMBEDDING_STUB_ENABLED=true` (default) so the app generates deterministic vectors locally.
+
+### Seeding demo data
+- To load demo documents at startup: `SEED_DEMO_ENABLED=true ./mvnw spring-boot:run -DskipTests`
+- Or call the admin endpoint (requires basic auth): `POST /api/v1/documents/seed` (see SeedController).
+
+### Evaluation harness
+- Endpoint: `GET /api/v1/eval/run` (requires auth). Seeds demo docs, runs MRR/NDCG/Recall@5 over the curated gold set, and returns JSON.
+- CI stores the report at `target/eval/report.json` (uploaded as the `eval-report` artifact).
+- To run eval at startup and emit the report locally, set `EVAL_RUN_ON_STARTUP=true`.
+
+### Performance check (k6)
+- Script: `perf/k6-smoke.js` with p95 threshold `<400ms`.
+- Run locally against a running app (stub mode ok):
+  ```
+  BASE_URL=http://localhost:8080 k6 run perf/k6-smoke.js
+  ```
+
+See `docs/VALIDATION.md` for details on hybrid scoring, eval, perf, and seeding.
 
 ### Docker Deployment
 

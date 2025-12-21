@@ -12,14 +12,15 @@ spring:
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: update
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
+        hbm2ddl.auto: update
     show-sql: false
   flyway:
-    enabled: true
+    enabled: false
     baseline-on-migrate: true
   redis:
     host: ${REDIS_HOST:localhost}
@@ -56,6 +57,8 @@ embedding:
   stub-dimensions: 64
 
 security:
+  auth:
+    enabled: ${SECURITY_AUTH_ENABLED:true}
   cors:
     allowed-origins: "*"
     allowed-methods: GET,POST,PUT,DELETE,OPTIONS
@@ -91,6 +94,42 @@ springdoc:
     tagsSorter: alpha
     docExpansion: none
 
+search:
+  hybrid-enabled: true
+  hybrid-vector-weight: 0.7
+  hybrid-vector-weight-profile-b: 0.5
+  scoring-profile: A
+  recency-enabled: true
+  recency-half-life-seconds: 604800
+  bm25-k1: 1.2
+  bm25-b: 0.75
+  metadata-boosts: {}
+
+seed:
+  demo:
+    enabled: false
+
+eval:
+  run-on-startup: false
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+  flyway:
+    enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        hbm2ddl.auto: update
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:semanticsearch}
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
 logging:
   level:
     root: INFO

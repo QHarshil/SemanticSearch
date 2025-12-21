@@ -62,6 +62,13 @@ public class InMemoryDocumentRepository implements DocumentRepository {
   }
 
   @Override
+  public Optional<Document> findByTitle(String title) {
+    return store.values().stream()
+        .filter(doc -> Objects.equals(title, doc.getTitle()))
+        .findFirst();
+  }
+
+  @Override
   public <S extends Document> S save(S entity) {
     if (entity.getId() == null) {
       entity.setId(UUID.randomUUID());

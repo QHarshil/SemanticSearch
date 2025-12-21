@@ -58,7 +58,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, loading }) => {
         </div>
 
         {showAdvanced && (
-          <div className="bg-gray-50 p-4 rounded-md space-y-4">
+          <div className="bg-neutral-900 border border-neutral-800 p-4 rounded-md space-y-4">
             <div className="space-y-2">
               <div className="flex justify-between">
                 <label className="text-sm font-medium">Results Limit: {limit}</label>

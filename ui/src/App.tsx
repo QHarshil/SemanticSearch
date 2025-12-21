@@ -184,58 +184,71 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-neutral-950 text-slate-100">
       <Toaster />
       <Navbar />
-      
-      <main className="container mx-auto px-4 py-8">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="search">Search</TabsTrigger>
-            <TabsTrigger value="add">Add Document</TabsTrigger>
-            <TabsTrigger value="documents">Manage Documents</TabsTrigger>
-          </TabsList>
-          
-          <TabsContent value="search" className="mt-6">
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <h2 className="text-2xl font-bold mb-6">Semantic Search</h2>
-              <SearchBar onSearch={handleSearch} loading={loading} />
-              <SearchResults results={searchResults} loading={loading} />
+
+      <main className="container mx-auto px-4 py-10">
+        <div className="flex flex-col gap-6">
+          <div className="panel p-4 sm:p-6 border border-neutral-800">
+            <div className="flex items-center justify-between">
+              <h1 className="text-3xl font-semibold tracking-tight">Semantic Search Studio</h1>
+              <span className="text-xs uppercase tracking-[0.2em] text-neutral-400">
+                Live Demo
+              </span>
             </div>
-          </TabsContent>
-          
-          <TabsContent value="add" className="mt-6">
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <h2 className="text-2xl font-bold mb-6">
-                {selectedDocument ? 'Edit Document' : 'Add New Document'}
-              </h2>
-              <DocumentForm 
-                onSubmit={selectedDocument ? handleUpdateDocument : handleCreateDocument}
-                document={selectedDocument}
-                loading={loading}
-                onCancel={() => setSelectedDocument(null)}
-              />
-            </div>
-          </TabsContent>
-          
-          <TabsContent value="documents" className="mt-6">
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <h2 className="text-2xl font-bold mb-6">Manage Documents</h2>
-              <DocumentList 
-                documents={documents} 
-                onEdit={handleEditDocument} 
-                onDelete={handleDeleteDocument}
-                loading={loading}
-                onRefresh={fetchDocuments}
-              />
-            </div>
-          </TabsContent>
-        </Tabs>
+          </div>
+
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-3 bg-neutral-900 border border-neutral-800 rounded-lg">
+              <TabsTrigger value="search">Search</TabsTrigger>
+              <TabsTrigger value="add">Add Document</TabsTrigger>
+              <TabsTrigger value="documents">Manage</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="search" className="mt-6">
+              <div className="panel p-6 border border-neutral-800">
+                <h2 className="text-2xl font-semibold mb-6">Semantic Search</h2>
+                <SearchBar onSearch={handleSearch} loading={loading} />
+                <SearchResults results={searchResults} loading={loading} />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="add" className="mt-6">
+              <div className="panel p-6 border border-neutral-800">
+                <h2 className="text-2xl font-semibold mb-6">
+                  {selectedDocument ? 'Edit Document' : 'Add New Document'}
+                </h2>
+                <DocumentForm
+                  onSubmit={selectedDocument ? handleUpdateDocument : handleCreateDocument}
+                  document={selectedDocument}
+                  loading={loading}
+                  onCancel={() => setSelectedDocument(null)}
+                />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="documents" className="mt-6">
+              <div className="panel p-6 border border-neutral-800">
+                <h2 className="text-2xl font-semibold mb-6">Manage Documents</h2>
+                <DocumentList
+                  documents={documents}
+                  onEdit={handleEditDocument}
+                  onDelete={handleDeleteDocument}
+                  loading={loading}
+                  onRefresh={fetchDocuments}
+                />
+              </div>
+            </TabsContent>
+          </Tabs>
+        </div>
       </main>
-      
-      <footer className="bg-gray-800 text-white py-6 mt-12">
+
+      <footer className="footer text-slate-100">
         <div className="container mx-auto px-4 text-center">
-          <p>SemanticSearchJava - Vector-Powered Semantic Search</p>
+          <p className="text-sm uppercase tracking-[0.25em] text-neutral-400">
+            SemanticSearchJava — Vector Search Stack
+          </p>
         </div>
       </footer>
     </div>

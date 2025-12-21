@@ -99,7 +99,7 @@ class SearchControllerTest {
     private final List<SearchResult> cannedResults;
 
     StubSearchService(List<SearchResult> cannedResults) {
-      super(null, null, null);
+      super(null, null, null, new io.github.semanticsearch.config.SearchProperties());
       this.cannedResults = cannedResults;
     }
 

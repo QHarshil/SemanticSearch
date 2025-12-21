@@ -23,6 +23,9 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Profile("!test")
 public class SecurityConfig {
 
+  @Value("${security.auth.enabled:true}")
+  private boolean authEnabled;
+
   @Value("${security.cors.allowed-origins:*}")
   private List<String> allowedOrigins;
 
@@ -44,11 +47,16 @@ public class SecurityConfig {
    */
   @Bean
   public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-    return http.cors(cors -> cors.configurationSource(corsConfigurationSource()))
+    http.cors(cors -> cors.configurationSource(corsConfigurationSource()))
         .csrf(AbstractHttpConfigurer::disable)
         .sessionManagement(
-            session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-        .httpBasic(Customizer.withDefaults())
+            session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+
+    if (!authEnabled) {
+      return http.authorizeHttpRequests(auth -> auth.anyRequest().permitAll()).build();
+    }
+
+    return http.httpBasic(Customizer.withDefaults())
         .authorizeHttpRequests(
             auth ->
                 auth

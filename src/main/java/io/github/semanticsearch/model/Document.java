@@ -111,7 +111,7 @@ public class Document {
   }
 
   public void setMetadata(Map<String, String> metadata) {
-    this.metadata = metadata != null ? metadata : new HashMap<>();
+    this.metadata = metadata != null ? new HashMap<>(metadata) : new HashMap<>();
   }
 
   public String getVectorId() {

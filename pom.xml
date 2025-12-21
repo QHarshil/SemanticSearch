@@ -21,10 +21,10 @@
     <maven.compiler.release>21</maven.compiler.release>
         <elasticsearch.version>8.10.4</elasticsearch.version>
     <openai.version>0.18.2</openai.version>
-        <springdoc.version>2.2.0</springdoc.version>
+        <springdoc.version>2.7.0</springdoc.version>
         <testcontainers.version>1.19.1</testcontainers.version>
         <resilience4j.version>2.1.0</resilience4j.version>
-        <micrometer.version>1.11.5</micrometer.version>
+        <micrometer.version>1.13.5</micrometer.version>
         <tomcat.version>10.1.45</tomcat.version>
         <netty.version>4.1.118.Final</netty.version>
         <spring-security.version>6.4.10</spring-security.version>
@@ -34,6 +34,7 @@
         <sonar.version>3.9.1.2184</sonar.version>
         <spotless.version>2.40.0</spotless.version>
         <spotless.skip>true</spotless.skip>
+        <flyway.version>11.19.1</flyway.version>
         <skipTests>false</skipTests>
     </properties>
     
@@ -74,6 +75,7 @@
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
+            <version>${flyway.version}</version>
         </dependency>
         
         <!-- Elasticsearch -->

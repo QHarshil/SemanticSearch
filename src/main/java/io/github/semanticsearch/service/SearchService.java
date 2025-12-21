@@ -8,10 +8,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
+import io.github.semanticsearch.config.SearchProperties;
 import io.github.semanticsearch.model.Document;
 import io.github.semanticsearch.model.SearchRequest;
 import io.github.semanticsearch.model.SearchResult;
 import io.github.semanticsearch.repository.DocumentRepository;
+import io.github.semanticsearch.util.ScoreCalculator;
 
 /**
  * Service for semantic search functionality. Coordinates embedding generation, vector search, and
@@ -25,14 +27,17 @@ public class SearchService {
   private final EmbeddingService embeddingService;
   private final IndexService indexService;
   private final DocumentRepository documentRepository;
+  private final SearchProperties searchProperties;
 
   public SearchService(
       EmbeddingService embeddingService,
       IndexService indexService,
-      DocumentRepository documentRepository) {
+      DocumentRepository documentRepository,
+      SearchProperties searchProperties) {
     this.embeddingService = embeddingService;
     this.indexService = indexService;
     this.documentRepository = documentRepository;
+    this.searchProperties = searchProperties;
   }
 
   /**
@@ -72,7 +77,12 @@ public class SearchService {
         documentRepository.findAllById(documentIds).stream()
             .collect(Collectors.toMap(Document::getId, doc -> doc));
 
-    // Build search results
+    Map<UUID, Double> lexicalScores = Collections.emptyMap();
+    if (searchProperties.isHybridEnabled()) {
+      lexicalScores = computeLexicalScores(request.getQuery(), documentsMap);
+    }
+
+    // Build search results with optional hybrid/metadata boosts
     List<SearchResult> results = new ArrayList<>();
     for (Map.Entry<UUID, Double> entry : similarDocuments) {
       UUID documentId = entry.getKey();
@@ -83,13 +93,26 @@ public class SearchService {
           continue;
         }
 
+        double vectorScore = ScoreCalculator.clamp(entry.getValue());
+        double lexicalScore = lexicalScores.getOrDefault(documentId, vectorScore);
+        double blended = ScoreCalculator.blendScores(vectorScore, lexicalScore, searchProperties);
+        double boosted =
+            ScoreCalculator.applyMetadataBoosts(
+                document, blended, searchProperties.getMetadataBoosts());
+        double withRecency =
+            ScoreCalculator.applyRecency(
+                document,
+                boosted,
+                searchProperties.isRecencyEnabled(),
+                searchProperties.getRecencyHalfLifeSeconds());
+
         SearchResult result =
             SearchResult.builder()
                 .id(document.getId())
                 .title(document.getTitle())
                 .content(request.isIncludeContent() ? document.getContent() : null)
                 .metadata(projectMetadata(document, request.getFields()))
-                .score(entry.getValue()) // Use double directly without conversion
+                .score(withRecency)
                 .highlights(
                     request.isIncludeHighlights()
                         ? generateHighlights(document.getContent(), request.getQuery())
@@ -248,4 +271,74 @@ public class SearchService {
     }
     return projected;
   }
+
+  private Map<UUID, Double> computeLexicalScores(String query, Map<UUID, Document> documents) {
+    List<String> queryTerms = tokenizeList(query);
+    Map<String, Integer> queryFreq = termFreq(queryTerms);
+    int docCount = documents.size();
+    double avgLen =
+        documents.values().stream()
+            .mapToInt(doc -> tokenizeList(doc.getContent()).size())
+            .average()
+            .orElse(1.0);
+
+    Map<String, Integer> docFreq = new HashMap<>();
+    documents
+        .values()
+        .forEach(
+            doc -> {
+              Set<String> terms = new HashSet<>(tokenizeList(doc.getContent()));
+              for (String t : terms) {
+                docFreq.merge(t, 1, Integer::sum);
+              }
+            });
+
+    Map<UUID, Double> scores = new HashMap<>();
+    for (Map.Entry<UUID, Document> entry : documents.entrySet()) {
+      List<String> docTerms = tokenizeList(entry.getValue().getContent());
+      Map<String, Integer> tf = termFreq(docTerms);
+      double docLen = docTerms.size();
+      double bm25 = 0.0;
+      for (String term : queryFreq.keySet()) {
+        int df = docFreq.getOrDefault(term, 0);
+        if (df == 0) {
+          continue;
+        }
+        double idf =
+            Math.log((docCount - df + 0.5) / (df + 0.5) + 1.0); // smooth idf
+        double freq = tf.getOrDefault(term, 0);
+        double k1 = searchProperties.getBm25K1();
+        double b = searchProperties.getBm25B();
+        double denom = freq + k1 * (1 - b + b * (docLen / avgLen));
+        bm25 += idf * ((freq * (k1 + 1)) / (denom == 0 ? 1 : denom));
+      }
+      scores.put(entry.getKey(), bm25 == 0.0 ? 0.0 : ScoreCalculator.clamp(bm25 / (bm25 + 1)));
+    }
+    return scores;
+  }
+
+  private Set<String> tokenize(String text) {
+    if (text == null || text.isBlank()) {
+      return Set.of();
+    }
+    String[] parts = text.toLowerCase().split("[^a-z0-9]+");
+    return Arrays.stream(parts).filter(p -> !p.isBlank()).collect(Collectors.toSet());
+  }
+
+  private List<String> tokenizeList(String text) {
+    if (text == null || text.isBlank()) {
+      return List.of();
+    }
+    String[] parts = text.toLowerCase().split("[^a-z0-9]+");
+    return Arrays.stream(parts).filter(p -> !p.isBlank()).toList();
+  }
+
+  private Map<String, Integer> termFreq(List<String> terms) {
+    Map<String, Integer> tf = new HashMap<>();
+    for (String t : terms) {
+      tf.merge(t, 1, Integer::sum);
+    }
+    return tf;
+  }
+
 }
