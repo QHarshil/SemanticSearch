@@ -4,6 +4,13 @@
 logs/
 *.log
 target/
+*.iml
+*.class
+*.swp
+*.swo
+.env
+ui/.env*
+.mvn/wrapper/maven-wrapper.jar
 
 # Node / Frontend
 node_modules/

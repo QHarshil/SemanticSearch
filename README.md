@@ -51,7 +51,9 @@ This project provides a robust semantic search capability using vector embedding
    POSTGRES_PASSWORD=postgres
    ELASTICSEARCH_HOST=localhost
    ELASTICSEARCH_PORT=9200
+   ELASTICSEARCH_STUB_ENABLED=false
    EMBEDDING_API_KEY=your_embedding_api_key
+   EMBEDDING_STUB_ENABLED=false
    ```
 
 4. Build and test the application (uses the Maven wrapper for reproducible builds)
@@ -77,6 +79,7 @@ This project provides a robust semantic search capability using vector embedding
 - Set `elasticsearch.stub-enabled=true` (env var `ELASTICSEARCH_STUB_ENABLED=true`).
 - The service will use an in-memory vector store for smoke testing; no Elasticsearch host is needed.
 - When you’re ready for real search, set the property back to `false` and provide `ELASTICSEARCH_HOST`/`ELASTICSEARCH_PORT`.
+- For offline embedding without a provider key, keep `EMBEDDING_STUB_ENABLED=true` (default) so the app generates deterministic vectors locally.
 
 ### Docker Deployment
 

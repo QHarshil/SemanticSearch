@@ -1,0 +1,32 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:semantic;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
+  redis:
+    host: localhost
+    port: 0
+  cache:
+    type: simple
+
+cache:
+  redis:
+    enabled: false
+
+elasticsearch:
+  stub-enabled: true
+
+embedding:
+  stub-enabled: true
+  stub-dimensions: 64
+  api:
+    key: dummy

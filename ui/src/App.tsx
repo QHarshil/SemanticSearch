@@ -235,7 +235,7 @@ function App() {
       
       <footer className="bg-gray-800 text-white py-6 mt-12">
         <div className="container mx-auto px-4 text-center">
-          <p>SemanticSearchJava - AI-Powered Semantic Search</p>
+          <p>SemanticSearchJava - Vector-Powered Semantic Search</p>
         </div>
       </footer>
     </div>

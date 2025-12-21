@@ -24,7 +24,7 @@ jobs:
     - name: Build with Maven
       env:
         ELASTICSEARCH_STUB_ENABLED: "true"
-        OPENAI_API_KEY: "dummy"
+        EMBEDDING_STUB_ENABLED: "true"
       run: ./mvnw -B clean verify -Dspotless.skip=true
     
     - name: Run security scan

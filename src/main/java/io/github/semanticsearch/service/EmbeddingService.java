@@ -5,7 +5,13 @@ import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.stream.Collectors;
+
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.lang.Nullable;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
@@ -27,10 +33,16 @@ public class EmbeddingService {
 
   private final OpenAiService openAiService;
 
-  @Value("${openai.embedding.model:text-embedding-ada-002}")
+  @Value("${embedding.model:text-embedding-3-small}")
   private String embeddingModel;
 
-  public EmbeddingService(OpenAiService openAiService) {
+  @Value("${embedding.stub-enabled:false}")
+  private boolean stubEnabled;
+
+  @Value("${embedding.stub-dimensions:64}")
+  private int stubDimensions;
+
+  public EmbeddingService(@Nullable OpenAiService openAiService) {
     this.openAiService = openAiService;
   }
 
@@ -42,9 +54,13 @@ public class EmbeddingService {
    * @return List of double values representing the embedding vector
    */
   @Cacheable(value = "embeddings", key = "#text.hashCode()")
-  @Retry(name = "openai")
-  @CircuitBreaker(name = "openai", fallbackMethod = "fallbackEmbed")
+  @Retry(name = "embedding")
+  @CircuitBreaker(name = "embedding", fallbackMethod = "fallbackEmbed")
   public List<Double> embed(String text) {
+    if (stubEnabled || openAiService == null) {
+      return generateStubVector(text);
+    }
+
     log.debug("Generating embedding for text: {}", text.substring(0, Math.min(50, text.length())));
 
     EmbeddingRequest request =
@@ -56,7 +72,7 @@ public class EmbeddingService {
     List<Embedding> embeddings = openAiService.createEmbeddings(request).getData();
 
     if (embeddings.isEmpty()) {
-    log.warn("No embeddings returned from embedding provider");
+      log.warn("No embeddings returned from embedding provider");
       return Collections.emptyList();
     }
 
@@ -75,10 +91,36 @@ public class EmbeddingService {
    * @return Empty list as fallback
    */
   private List<Double> fallbackEmbed(String text, Exception e) {
-    log.error(
-        "Failed to generate embedding for text: {}",
+    log.warn(
+        "Embedding provider unavailable; using deterministic stub vector for text: {}",
         text.substring(0, Math.min(50, text.length())),
         e);
-    return Collections.emptyList();
+    return generateStubVector(text);
+  }
+
+  private List<Double> generateStubVector(String text) {
+    try {
+      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      byte[] hash = digest.digest(text.getBytes(StandardCharsets.UTF_8));
+      double[] vector = new double[Math.max(4, stubDimensions)];
+
+      for (int i = 0; i < vector.length; i++) {
+        int b = hash[i % hash.length] & 0xFF;
+        vector[i] = (b / 255.0) * 2.0 - 1.0; // normalize to [-1,1]
+      }
+
+      double norm =
+          Math.sqrt(
+              java.util.Arrays.stream(vector).map(v -> v * v).sum());
+      if (norm > 0) {
+        for (int i = 0; i < vector.length; i++) {
+          vector[i] = vector[i] / norm;
+        }
+      }
+      return java.util.Arrays.stream(vector).boxed().collect(Collectors.toList());
+    } catch (NoSuchAlgorithmException ex) {
+      log.error("Failed to create stub embedding vector", ex);
+      return Collections.emptyList();
+    }
   }
 }

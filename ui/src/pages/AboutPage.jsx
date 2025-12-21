@@ -8,9 +8,9 @@ const AboutPage = () => {
       <section className="about-section">
         <h2>Overview</h2>
         <p>
-          Semantic Search is an AI-powered search microservice built with Java and Spring Boot.
-          It leverages vector embeddings to find conceptually similar documents, going beyond
-          traditional keyword-based search to understand the meaning behind your queries.
+          Semantic Search is a vector-driven search microservice built with Java and Spring Boot.
+          It leverages embeddings to find conceptually similar documents, going beyond
+          traditional keyword-based search to understand the intent behind your queries.
         </p>
         <p>
           Our platform is designed for organizations that need to quickly find relevant information
@@ -26,7 +26,7 @@ const AboutPage = () => {
             <h3>Document Indexing</h3>
             <p>
               When you add a document, its text is converted into a high-dimensional vector
-              using OpenAI's embedding models. This vector represents the semantic meaning
+              using a pluggable embedding provider. This vector represents the semantic meaning
               of the document in a mathematical space.
             </p>
           </div>
@@ -66,8 +66,8 @@ const AboutPage = () => {
           <div className="tech-item">
             <h3>Backend</h3>
             <ul>
-              <li>Java 17</li>
-              <li>Spring Boot 3</li>
+              <li>Java 21+</li>
+              <li>Spring Boot 3.4</li>
               <li>Elasticsearch</li>
               <li>PostgreSQL</li>
               <li>Redis</li>
@@ -75,9 +75,9 @@ const AboutPage = () => {
           </div>
           
           <div className="tech-item">
-            <h3>AI & Search</h3>
+            <h3>Vector Search</h3>
             <ul>
-              <li>OpenAI Embeddings</li>
+              <li>Embedding provider integration</li>
               <li>Vector Search</li>
               <li>Cosine Similarity</li>
               <li>Resilience Patterns</li>

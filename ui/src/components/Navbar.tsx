@@ -10,7 +10,7 @@ const Navbar: React.FC = () => {
           <h1 className="text-xl font-bold">SemanticSearchJava</h1>
         </div>
         <div>
-          <span className="text-sm opacity-75">AI-Powered Semantic Search</span>
+          <span className="text-sm opacity-75">Vector-Powered Semantic Search</span>
         </div>
       </div>
     </header>

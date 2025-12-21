@@ -1,0 +1,17 @@
+.git
+.mvn/wrapper/maven-wrapper.jar
+ui/node_modules
+ui/dist
+ui/.turbo
+ui/.vite
+ui/.next
+ui/.cache
+ui/pnpm-lock.yaml
+ui/package-lock.json
+ui/yarn.lock
+node_modules
+.target
+.target/**
+.target/*
+target
+logs

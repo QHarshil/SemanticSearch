@@ -9,7 +9,7 @@ const Footer = () => {
         <div className="footer-section">
           <h3 className="footer-heading">Semantic Search</h3>
           <p className="footer-description">
-            AI-powered semantic search microservice built with Java and Spring Boot.
+            Semantic search microservice built with Java and Spring Boot.
             Find documents based on meaning, not just keywords.
           </p>
         </div>

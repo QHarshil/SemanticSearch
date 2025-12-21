@@ -5,9 +5,9 @@ const HomePage = () => {
   return (
     <div className="home-page">
       <section className="hero-section">
-        <h1 className="hero-title">AI-Powered Semantic Search</h1>
+        <h1 className="hero-title">Semantic Search</h1>
         <p className="hero-subtitle">
-          Find documents based on meaning, not just keywords. Discover the power of vector embeddings and AI-driven search.
+          Find documents based on meaning, not just keywords. Discover the power of vector embeddings and intent-aware search.
         </p>
         <div className="hero-actions">
           <Link to="/search" className="button-primary">Try Searching</Link>
@@ -28,7 +28,7 @@ const HomePage = () => {
           
           <div className="feature-card">
             <div className="feature-icon">🧠</div>
-            <h3 className="feature-title">AI Embeddings</h3>
+            <h3 className="feature-title">Embeddings</h3>
             <p className="feature-description">
               Powered by state-of-the-art language models that understand context and semantics for more accurate results.
             </p>
@@ -92,7 +92,7 @@ const HomePage = () => {
       <section className="cta-section">
         <h2 className="section-title">Ready to get started?</h2>
         <p className="cta-description">
-          Add your documents and start searching semantically today. Experience the difference of AI-powered search.
+          Add your documents and start searching semantically today. Experience the difference of vector-driven search.
         </p>
         <div className="cta-buttons">
           <Link to="/documents" className="button-primary">Add Documents</Link>

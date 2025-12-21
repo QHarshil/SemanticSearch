@@ -25,7 +25,7 @@
           │                      │                       │
           ▼                      ▼                       ▼
 ┌─────────────────┐    ┌─────────────────┐     ┌─────────────────────┐
-│   PostgreSQL    │    │   Elasticsearch │     │    OpenAI API       │
+│   PostgreSQL    │    │   Elasticsearch │     │ Embedding Provider  │
 │  (Metadata DB)  │    │  (Vector Store) │     │  (Embeddings API)   │
 └─────────────────┘    └─────────────────┘     └─────────────────────┘
           ▲                      ▲
@@ -93,7 +93,7 @@
 - Implements pagination and filtering
 
 #### Embedding Service
-- Interfaces with OpenAI API for text embeddings
+- Interfaces with an embedding provider for text embeddings
 - Implements retry logic and circuit breakers
 - Caches common embeddings
 - Handles batching for efficiency

@@ -44,13 +44,16 @@ elasticsearch:
     name: semantic-search
     dimensions: 1536
     auto-init: true
+  stub-enabled: ${ELASTICSEARCH_STUB_ENABLED:false}
 
 embedding:
   api:
     key: ${EMBEDDING_API_KEY:}
+    prompt: ${EMBEDDING_API_PROMPT:false}
+  model: text-embedding-3-small
   timeout: 30
-  embedding:
-    model: text-embedding-ada-002
+  stub-enabled: ${EMBEDDING_STUB_ENABLED:true}
+  stub-dimensions: 64
 
 security:
   cors:

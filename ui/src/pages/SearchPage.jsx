@@ -32,7 +32,7 @@ const SearchPage = () => {
       <h1 className="page-title">Semantic Search</h1>
       <p className="page-description">
         Search for documents based on meaning, not just keywords. Our semantic search
-        uses AI to understand the concepts in your query and find relevant documents.
+        uses embeddings to understand the concepts in your query and find relevant documents.
       </p>
       
       {isLoading ? (
