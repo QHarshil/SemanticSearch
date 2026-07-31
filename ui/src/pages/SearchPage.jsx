@@ -1,38 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import SearchForm from '../components/SearchForm';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { checkHealth } from '../lib/api';
 
 const SearchPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [apiStatus, setApiStatus] = useState(null);
 
   useEffect(() => {
-    // Check if the search API is available
-    const checkApiStatus = async () => {
-      try {
-        const response = await fetch('/api/search/health');
-        if (response.ok) {
-          setApiStatus('available');
-        } else {
-          setApiStatus('unavailable');
-        }
-      } catch (error) {
-        console.error('API health check failed:', error);
-        setApiStatus('error');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    checkApiStatus();
+    checkHealth()
+      .then((healthy) => setApiStatus(healthy ? 'available' : 'unavailable'))
+      .finally(() => setIsLoading(false));
   }, []);
 
   return (
     <div className="search-page">
-      <h1 className="page-title">Semantic Search</h1>
+      <h1 className="page-title">Search</h1>
       <p className="page-description">
-        Search for documents based on meaning, not just keywords. Our semantic search
-        uses embeddings to understand the concepts in your query and find relevant documents.
+        Queries are embedded and matched against document vectors, then re-ranked with
+        BM25 lexical scoring, metadata boosts and recency decay. The default embedder
+        runs locally and matches on shared words and word fragments; set an OpenAI key
+        to retrieve on meaning instead.
       </p>
       
       {isLoading ? (

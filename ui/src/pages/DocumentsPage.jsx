@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import DocumentForm from '../components/DocumentForm';
 import LoadingSpinner from '../components/LoadingSpinner';
-import { showErrorToast, showSuccessToast } from '../components/Toast';
-import { useAuth } from '../context/AuthContext';
+import { showErrorToast, showSuccessToast } from '../lib/toast';
+import { listDocuments, deleteDocument } from '../lib/api';
 
 const DocumentsPage = () => {
   const [documents, setDocuments] = useState([]);
@@ -10,7 +10,6 @@ const DocumentsPage = () => {
   const [error, setError] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState(null);
-  const { isAuthenticated } = useAuth();
 
   useEffect(() => {
     fetchDocuments();
@@ -19,16 +18,10 @@ const DocumentsPage = () => {
   const fetchDocuments = async () => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
-      const response = await fetch('/api/documents');
-      
-      if (!response.ok) {
-        throw new Error(`Error: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      setDocuments(data);
+      const { documents: page } = await listDocuments();
+      setDocuments(page);
     } catch (err) {
       setError(`Failed to fetch documents: ${err.message}`);
       showErrorToast(`Error loading documents: ${err.message}`);
@@ -41,18 +34,10 @@ const DocumentsPage = () => {
     if (!window.confirm('Are you sure you want to delete this document?')) {
       return;
     }
-    
+
     try {
-      const response = await fetch(`/api/documents/${id}`, {
-        method: 'DELETE',
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Error: ${response.status}`);
-      }
-      
-      // Remove the deleted document from the list
-      setDocuments(documents.filter(doc => doc.id !== id));
+      await deleteDocument(id);
+      setDocuments(documents.filter((doc) => doc.id !== id));
       showSuccessToast('Document deleted successfully');
     } catch (err) {
       showErrorToast(`Failed to delete document: ${err.message}`);
@@ -119,14 +104,12 @@ const DocumentsPage = () => {
                   >
                     View
                   </button>
-                  {isAuthenticated && (
-                    <button 
-                      className="button-danger small"
-                      onClick={() => handleDelete(doc.id)}
-                    >
-                      Delete
-                    </button>
-                  )}
+                  <button
+                    className="button-danger small"
+                    onClick={() => handleDelete(doc.id)}
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
             ))}

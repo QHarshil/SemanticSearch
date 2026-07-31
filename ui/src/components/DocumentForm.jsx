@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { showSuccessToast, showErrorToast } from '../components/Toast';
+import { useState, useEffect } from 'react';
+import { showSuccessToast, showErrorToast } from '../lib/toast';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { createDocument } from '../lib/api';
 
-const DocumentForm = () => {
+const DocumentForm = ({ onSuccess }) => {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -48,31 +49,15 @@ const DocumentForm = () => {
     setMessage(null);
     
     try {
-      const response = await fetch('/api/documents', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          title,
-          content
-        }),
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        throw new Error(errorData?.message || `Error: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      setMessage(`Document created successfully with ID: ${data.id}`);
+      const created = await createDocument({ title, content });
+      setMessage(`Document created successfully with ID: ${created.id}`);
       showSuccessToast('Document created successfully');
-      
-      // Reset form
+
       setTitle('');
       setContent('');
       setCharCount(0);
       setValidationErrors({});
+      onSuccess?.(created);
     } catch (err) {
       setError(`Failed to create document: ${err.message}`);
       showErrorToast(`Error: ${err.message}`);

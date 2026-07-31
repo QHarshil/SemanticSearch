@@ -1,5 +1,3 @@
-import React from 'react';
-
 const LoadingSpinner = ({ fullScreen = false }) => {
   const spinnerClasses = fullScreen 
     ? 'loading-spinner-fullscreen' 

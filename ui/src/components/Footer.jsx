@@ -1,5 +1,3 @@
-import React from 'react';
-
 const Footer = () => {
   const currentYear = new Date().getFullYear();
   
@@ -9,8 +7,8 @@ const Footer = () => {
         <div className="footer-section">
           <h3 className="footer-heading">Semantic Search</h3>
           <p className="footer-description">
-            Semantic search microservice built with Java and Spring Boot.
-            Find documents based on meaning, not just keywords.
+            Hybrid document search built with Java and Spring Boot. Vector
+            retrieval, re-ranked with BM25, metadata boosts and recency decay.
           </p>
         </div>
         
@@ -29,7 +27,7 @@ const Footer = () => {
           <ul className="footer-links">
             <li><a href="/swagger-ui.html">API Documentation</a></li>
             <li><a href="/v3/api-docs">OpenAPI Spec</a></li>
-            <li><a href="https://github.com/yourusername/semantic-search-java" target="_blank" rel="noopener noreferrer">GitHub Repository</a></li>
+            <li><a href="https://github.com/QHarshil/SemanticSearch" target="_blank" rel="noopener noreferrer">GitHub Repository</a></li>
           </ul>
         </div>
       </div>

@@ -1,145 +1,70 @@
-import React from 'react';
-
 const AboutPage = () => {
   return (
     <div className="about-page">
-      <h1 className="page-title">About Semantic Search</h1>
-      
+      <h1 className="page-title">About</h1>
+
       <section className="about-section">
         <h2>Overview</h2>
         <p>
-          Semantic Search is a vector-driven search microservice built with Java and Spring Boot.
-          It leverages embeddings to find conceptually similar documents, going beyond
-          traditional keyword-based search to understand the intent behind your queries.
+          A document search service built with Java and Spring Boot. Documents
+          are embedded into vectors and retrieved by cosine similarity, then
+          re-ranked with lexical and freshness signals before being returned.
         </p>
         <p>
-          Our platform is designed for organizations that need to quickly find relevant information
-          across large document collections, where traditional keyword search falls short.
+          Embeddings come from a pluggable provider. By default the service uses
+          a built-in local embedder so it runs with no API key; set an OpenAI key
+          to use a hosted model instead.
         </p>
       </section>
-      
+
       <section className="about-section">
-        <h2>How It Works</h2>
-        <div className="process-steps">
-          <div className="process-step">
-            <div className="step-number">1</div>
-            <h3>Document Indexing</h3>
-            <p>
-              When you add a document, its text is converted into a high-dimensional vector
-              using a pluggable embedding provider. This vector represents the semantic meaning
-              of the document in a mathematical space.
-            </p>
-          </div>
-          
-          <div className="process-step">
-            <div className="step-number">2</div>
-            <h3>Query Processing</h3>
-            <p>
-              When you search, your query is converted into a vector using the same embedding model,
-              ensuring that it's represented in the same semantic space as the documents.
-            </p>
-          </div>
-          
-          <div className="process-step">
-            <div className="step-number">3</div>
-            <h3>Vector Similarity</h3>
-            <p>
-              The system finds documents whose vectors are closest to your query vector,
-              using cosine similarity to measure the semantic relatedness between concepts.
-            </p>
-          </div>
-          
-          <div className="process-step">
-            <div className="step-number">4</div>
-            <h3>Result Ranking</h3>
-            <p>
-              Results are ranked by similarity score, with the most semantically relevant
-              documents appearing first in your search results, regardless of exact keyword matches.
-            </p>
-          </div>
-        </div>
+        <h2>Ranking</h2>
+        <p>
+          Retrieval is vector-first: the index returns nearest neighbours for the
+          query vector. Those candidates are then re-scored, so lexical matching
+          and boosts refine the ordering rather than widening recall.
+        </p>
+        <ul>
+          <li>Vector similarity (cosine) for candidate retrieval</li>
+          <li>BM25 lexical score blended in by a configurable weight</li>
+          <li>Additive boosts for configured metadata keys</li>
+          <li>Exponential recency decay with a configurable half-life</li>
+        </ul>
       </section>
-      
+
       <section className="about-section">
-        <h2>Technology Stack</h2>
+        <h2>Stack</h2>
         <div className="tech-stack">
           <div className="tech-item">
             <h3>Backend</h3>
             <ul>
-              <li>Java 21+</li>
-              <li>Spring Boot 3.4</li>
-              <li>Elasticsearch</li>
+              <li>Java 21</li>
+              <li>Spring Boot 3.5</li>
+              <li>Elasticsearch (kNN)</li>
               <li>PostgreSQL</li>
-              <li>Redis</li>
+              <li>Redis (embedding cache)</li>
             </ul>
           </div>
-          
-          <div className="tech-item">
-            <h3>Vector Search</h3>
-            <ul>
-              <li>Embedding provider integration</li>
-              <li>Vector Search</li>
-              <li>Cosine Similarity</li>
-              <li>Resilience Patterns</li>
-            </ul>
-          </div>
-          
+
           <div className="tech-item">
             <h3>Frontend</h3>
             <ul>
-              <li>React</li>
-              <li>Tailwind CSS</li>
-              <li>Responsive Design</li>
-              <li>Context API</li>
+              <li>React 18</li>
+              <li>React Router</li>
+              <li>Vite</li>
             </ul>
           </div>
         </div>
       </section>
-      
+
       <section className="about-section">
-        <h2>Use Cases</h2>
-        <div className="use-cases">
-          <div className="use-case">
-            <h3>Knowledge Management</h3>
-            <p>
-              Find relevant information across internal documentation, knowledge bases, and wikis
-              even when searching with different terminology than what's in the documents.
-            </p>
-          </div>
-          
-          <div className="use-case">
-            <h3>Research & Development</h3>
-            <p>
-              Discover connections between research papers, patents, and technical documents
-              based on conceptual similarity rather than keyword overlap.
-            </p>
-          </div>
-          
-          <div className="use-case">
-            <h3>Customer Support</h3>
-            <p>
-              Quickly find relevant support articles and documentation to answer customer
-              queries, even when customers describe issues in non-technical language.
-            </p>
-          </div>
-        </div>
-      </section>
-      
-      <section className="about-section">
-        <h2>API Documentation</h2>
+        <h2>API</h2>
         <p>
-          Our API is fully documented using OpenAPI/Swagger. You can explore the API
-          documentation at <a href="/swagger-ui.html">/swagger-ui.html</a>.
+          The HTTP API is documented with OpenAPI at{' '}
+          <a href="/swagger-ui.html">/swagger-ui.html</a>. It covers document
+          CRUD, search, and a relevance eval endpoint that reports MRR, NDCG@k
+          and Recall@k over a curated query set.
         </p>
-        <p>
-          The API allows you to programmatically:
-        </p>
-        <ul>
-          <li>Add, update, and delete documents</li>
-          <li>Perform semantic searches</li>
-          <li>Manage document collections</li>
-          <li>Monitor system health and performance</li>
-        </ul>
       </section>
     </div>
   );

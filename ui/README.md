@@ -1,50 +1,42 @@
-# React + TypeScript + Vite
+# UI
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React frontend for the Semantic Search service. Built with Vite and plain CSS.
 
-Currently, two official plugins are available:
+## Development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
-
-- Configure the top-level `parserOptions` property like this:
-
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+```bash
+npm install
+npm run dev
 ```
 
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
+The dev server runs on port 5173 and proxies `/api` and `/actuator` to
+`http://localhost:8080`, so start the backend first:
 
-```js
-// eslint.config.js
-import react from 'eslint-plugin-react'
-
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: '18.3' } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs['jsx-runtime'].rules,
-  },
-})
+```bash
+# from the repository root
+SECURITY_AUTH_ENABLED=false SPRING_PROFILES_ACTIVE=local \
+  ELASTICSEARCH_STUB_ENABLED=true ./mvnw spring-boot:run
 ```
+
+## Build
+
+```bash
+npm run build
+```
+
+`vite.config.js` writes the output to `../src/main/resources/static`, so a
+rebuild changes files under `src/main/resources/static/`. Those built assets are
+committed on purpose: it lets `java -jar` serve the UI without requiring Node.
+Commit them together with the source change that produced them.
+
+## Layout
+
+| Path | Contents |
+| --- | --- |
+| `src/lib/api.js` | Every backend call. Endpoint paths are defined only here. |
+| `src/pages/` | Route components, one per route in `App.jsx` |
+| `src/components/` | Shared components |
+
+Auth is handled at the HTTP layer by Spring Security (basic auth), not in the
+client. Run the backend with `SECURITY_AUTH_ENABLED=false` for local
+development.

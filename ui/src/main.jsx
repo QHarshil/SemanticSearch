@@ -4,10 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import './index.css';
 
-// Mount React App
-const container = document.getElementById('root');
-const root = createRoot(container);
-root.render(
+createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
       <App />

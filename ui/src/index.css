@@ -10,6 +10,11 @@
   --panel-dark: #11141c;
   --stroke: #2a2f3a;
   --text-dark: #f3f4f6;
+  /* Used by the light half of every themed rule below. Without these the
+     declarations referencing them are invalid, which drops the colour entirely and
+     leaves light text on a light surface. */
+  --background-light: #ffffff;
+  --text-light: #111827;
   --muted: #9ca3af;
   --error-color: #ef4444;
   --success-color: #10b981;
@@ -34,6 +39,115 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+/* Navbar.
+   The rules under the max-width:768px query below reshape this header for narrow
+   viewports - stacking the links, revealing the burger button - so they need a
+   horizontal layout here to reshape from. */
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background-color: rgba(12, 13, 16, 0.85);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--stroke);
+}
+
+.navbar-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0.875rem 2rem;
+}
+
+.navbar-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  color: var(--text-dark);
+  text-decoration: none;
+}
+
+.logo-image {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.logo-text {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Revealed by the responsive block; hidden while the links fit inline. */
+.mobile-menu-button {
+  display: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.navbar-menu {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.navbar-links {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.nav-link {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  text-decoration: none;
+  transition: color 0.2s, background-color 0.2s;
+}
+
+.nav-link:hover {
+  color: var(--text-dark);
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.navbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.theme-toggle {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--stroke);
+  border-radius: 0.5rem;
+  background-color: transparent;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.theme-toggle:hover {
+  color: var(--text-dark);
+  border-color: var(--primary-color);
+}
+
+/* Page body. Gives every route a gutter and a readable measure; the responsive
+   block narrows the padding rather than introducing it. */
+.main-content {
+  flex: 1;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2.5rem 2rem;
 }
 
 /* minimalist cards */
@@ -377,9 +491,9 @@ body {
 }
 
 .dark-mode .result-card {
-  background-color: #374151;
-  border-color: #4b5563;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  background-color: var(--panel-dark);
+  border-color: var(--stroke);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
 }
 
 .result-card:hover {

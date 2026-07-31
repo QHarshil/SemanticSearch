@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 // Toast component for notifications
@@ -78,15 +78,3 @@ export const ToastContainer = () => {
     toastRoot.current
   );
 };
-
-// Helper functions to show different types of toasts
-export const showToast = (message, type = 'info') => {
-  window.dispatchEvent(
-    new CustomEvent('toast', { detail: { message, type } })
-  );
-};
-
-export const showSuccessToast = (message) => showToast(message, 'success');
-export const showErrorToast = (message) => showToast(message, 'error');
-export const showWarningToast = (message) => showToast(message, 'warning');
-export const showInfoToast = (message) => showToast(message, 'info');
