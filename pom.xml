@@ -6,7 +6,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.4.5</version>
+        <version>3.5.16</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     
@@ -17,24 +17,27 @@
     <description>Semantic Search Microservice in Java</description>
     
     <properties>
-    <java.version>21</java.version>
-    <maven.compiler.release>21</maven.compiler.release>
+        <java.version>21</java.version>
+        <maven.compiler.release>21</maven.compiler.release>
         <elasticsearch.version>8.10.4</elasticsearch.version>
-    <openai.version>0.18.2</openai.version>
         <springdoc.version>2.7.0</springdoc.version>
         <testcontainers.version>1.19.1</testcontainers.version>
         <resilience4j.version>2.1.0</resilience4j.version>
-        <micrometer.version>1.13.5</micrometer.version>
-        <tomcat.version>10.1.45</tomcat.version>
-        <netty.version>4.1.118.Final</netty.version>
-        <spring-security.version>6.4.10</spring-security.version>
-        <spring-framework.version>6.2.11</spring-framework.version>
-        <jacoco.version>0.8.12</jacoco.version>
-        <jacoco.skip>true</jacoco.skip>
-        <sonar.version>3.9.1.2184</sonar.version>
-        <spotless.version>2.40.0</spotless.version>
-        <spotless.skip>true</spotless.skip>
         <flyway.version>11.19.1</flyway.version>
+
+        <!-- Overrides of spring-boot-starter-parent managed versions, applied to
+             pick up security fixes ahead of the next Spring Boot release.
+             Drop an entry once the managed version catches up: an override that
+             pins *below* the managed version is how CVEs get reintroduced. -->
+        <tomcat.version>10.1.57</tomcat.version>
+        <netty.version>4.1.136.Final</netty.version>
+
+        <!-- Build tooling. jacoco 0.8.13+ is required to read class files from
+             JDKs newer than the Java 21 release target. -->
+        <jacoco.version>0.8.15</jacoco.version>
+        <spotless.version>2.46.1</spotless.version>
+        <google-java-format.version>1.28.0</google-java-format.version>
+        <sonar.version>3.9.1.2184</sonar.version>
         <skipTests>false</skipTests>
     </properties>
     
@@ -69,7 +72,7 @@
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <version>42.7.7</version>
+            <version>42.7.13</version>
             <scope>runtime</scope>
         </dependency>
         <dependency>
@@ -85,19 +88,10 @@
             <version>${elasticsearch.version}</version>
         </dependency>
         
-        <!-- Embedding provider client -->
-        <dependency>
-            <groupId>com.theokanning.openai-gpt3-java</groupId>
-            <artifactId>service</artifactId>
-            <version>${openai.version}</version>
-        </dependency>
+        <!-- The embedding provider is called with Spring's RestClient; see
+             OpenAiEmbeddingClient. No SDK dependency is needed for one POST. -->
 
-        <!-- Override vulnerable transitive -->
-        <dependency>
-            <groupId>com.squareup.okhttp3</groupId>
-            <artifactId>okhttp</artifactId>
-            <version>4.12.0</version>
-        </dependency>
+        <!-- Override vulnerable transitive of the Elasticsearch client -->
         <dependency>
             <groupId>org.eclipse.parsson</groupId>
             <artifactId>parsson</artifactId>
@@ -201,10 +195,12 @@
             <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
+        <!-- Runtime rather than test scope so the "demo" profile can run the
+             packaged jar against an in-memory database with no PostgreSQL. -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
-            <scope>test</scope>
+            <scope>runtime</scope>
         </dependency>
     </dependencies>
     
@@ -244,9 +240,6 @@
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>${jacoco.version}</version>
-                <configuration>
-                    <skip>${jacoco.skip}</skip>
-                </configuration>
                 <executions>
                     <execution>
                         <goals>
@@ -273,7 +266,11 @@
                                         <limit>
                                             <counter>LINE</counter>
                                             <value>COVEREDRATIO</value>
-                                            <minimum>0.80</minimum>
+                                            <!-- Measured at 0.70; raise as coverage improves.
+                                                 Kept at a level the suite genuinely meets rather
+                                                 than an aspirational number that only passed
+                                                 because the plugin was skipped. -->
+                                            <minimum>0.65</minimum>
                                         </limit>
                                     </limits>
                                 </rule>
@@ -288,10 +285,9 @@
                 <artifactId>spotless-maven-plugin</artifactId>
                 <version>${spotless.version}</version>
                 <configuration>
-                    <skip>${spotless.skip}</skip>
                     <java>
                         <googleJavaFormat>
-                            <version>1.22.0</version>
+                            <version>${google-java-format.version}</version>
                             <style>GOOGLE</style>
                         </googleJavaFormat>
                         <removeUnusedImports />

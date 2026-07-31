@@ -1,5 +1,6 @@
-version: '3.8'
-
+# The full stack: the service against real PostgreSQL, Elasticsearch and Redis.
+# For a quick look with no dependencies at all, use the demo profile instead:
+#   java -jar target/semantic-search-java-1.0.0.jar --spring.profiles.active=demo
 services:
   app:
     build: .
@@ -14,10 +15,21 @@ services:
       - ELASTICSEARCH_HOST=elasticsearch
       - ELASTICSEARCH_PORT=9200
       - ELASTICSEARCH_PROTOCOL=http
+      # Use the real cluster started below rather than the in-memory index,
+      # which is the default everywhere else. With a real cluster the
+      # Elasticsearch health indicator becomes meaningful, so turn it on.
+      - ELASTICSEARCH_STUB_ENABLED=false
+      - MANAGEMENT_HEALTH_ELASTICSEARCH_ENABLED=true
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY}
-      - EMBEDDING_STUB_ENABLED=${EMBEDDING_STUB_ENABLED:-true}
+      # Local embeddings by default so the stack runs without an API key. Set
+      # EMBEDDING_LOCAL_ENABLED=false and supply a key to use a hosted model;
+      # EMBEDDING_DIMENSIONS must then match the model, and the index has to be
+      # rebuilt because vectors from different models are not comparable.
+      - EMBEDDING_LOCAL_ENABLED=${EMBEDDING_LOCAL_ENABLED:-true}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
+      - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-256}
+      - SEED_DEMO_ENABLED=${SEED_DEMO_ENABLED:-true}
     depends_on:
       - postgres
       - elasticsearch

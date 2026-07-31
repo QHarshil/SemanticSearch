@@ -1,22 +1,25 @@
-.DS_Store
-.idea/
-.vscode/
+# Build output
+target/
+*.class
+ui/dist/
+
+# Logs
 logs/
 *.log
-target/
-*.iml
-*.class
-*.swp
-*.swo
+
+# Secrets / local env
 .env
 ui/.env*
-.mvn/wrapper/maven-wrapper.jar
 
-# Node / Frontend
+# Node
 node_modules/
 ui/node_modules/
-ui/dist/
-ui/.turbo/
 ui/.vite/
-ui/.next/
-ui/.cache/
+
+# Editors / OS
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+.DS_Store

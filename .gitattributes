@@ -1,0 +1,14 @@
+# Normalise line endings so the Maven wrapper and shell scripts stay usable
+# regardless of the platform a contributor clones on.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.jar binary
+
+# Built frontend assets. Produced by `npm run build` in ui/ and committed so a
+# plain `java -jar` serves the UI without needing a Node toolchain. Marking them
+# generated keeps them out of language statistics and collapses them in diffs.
+src/main/resources/static/assets/** linguist-generated=true
+src/main/resources/static/index.html linguist-generated=true
+
+# Lockfiles are generated, not authored.
+ui/package-lock.json linguist-generated=true
