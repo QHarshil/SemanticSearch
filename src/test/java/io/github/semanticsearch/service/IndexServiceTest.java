@@ -1,63 +1,172 @@
 package io.github.semanticsearch.service;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.AbstractMap;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.junit.jupiter.SpringExtension;
 
 import io.github.semanticsearch.model.Document;
 import io.github.semanticsearch.repository.DocumentRepository;
 
+/**
+ * Indexing and nearest-neighbour lookup against the in-memory index.
+ *
+ * <p>Scores are asserted against the value the geometry actually implies - 1.0 for a vector
+ * compared with itself, strictly between 0 and 1 for a partial overlap - so a similarity regression
+ * moves an assertion rather than staying inside a loose bound.
+ */
 @SpringBootTest
 @ActiveProfiles("test")
-@ExtendWith(SpringExtension.class)
 class IndexServiceTest {
 
   @Autowired private IndexService indexService;
-
   @Autowired private EmbeddingService embeddingService;
-
   @Autowired private DocumentRepository documentRepository;
 
-  @Test
-  void indexesAndFindsSimilarDocumentsInStubMode() {
-    Document document = new Document();
-    document.setTitle("Doc One");
-    document.setContent("semantic vector search document");
-    document.setContentHash(hash(document.getContent()));
+  @BeforeEach
+  void resetCorpus() {
+    documentRepository.deleteAll();
+    indexService.rebuildIndex();
+  }
 
-    Document saved = documentRepository.save(document);
-    Document indexed = indexService.indexDocument(saved);
+  private Document index(String title, String content) {
+    Document document = new Document();
+    document.setTitle(title);
+    document.setContent(content);
+    document.setContentHash(hash(content));
+    return indexService.indexDocument(documentRepository.save(document));
+  }
+
+  private List<Map.Entry<UUID, Double>> search(String query, int limit, double minScore) {
+    return indexService.findSimilarDocuments(embeddingService.embed(query), limit, minScore);
+  }
+
+  @Test
+  void indexingMarksTheDocumentAndAssignsAVectorId() {
+    Document indexed = index("Doc One", "Semantic vector search over documents.");
 
     assertTrue(indexed.isIndexed());
     assertNotNull(indexed.getVectorId());
+    assertEquals(
+        indexed.getVectorId(),
+        documentRepository.findById(indexed.getId()).orElseThrow().getVectorId(),
+        "the vector id must be persisted, not only set on the returned instance");
+  }
 
-    List<Map.Entry<UUID, Double>> similar =
-        indexService.findSimilarDocuments(
-            embeddingService.embed(document.getContent()), 5, 0.1);
+  @Test
+  void anExactMatchScoresAtOrNearOne() {
+    Document indexed = index("Doc One", "Semantic vector search over documents.");
 
-    assertFalse(similar.isEmpty());
-    assertEquals(indexed.getId(), similar.get(0).getKey());
-    assertTrue(similar.get(0).getValue() > 0.0);
+    var results = search("Doc One Semantic vector search over documents.", 5, 0.0);
+
+    assertFalse(results.isEmpty());
+    assertEquals(indexed.getId(), results.get(0).getKey());
+    assertEquals(1.0, results.get(0).getValue(), 1e-6);
+  }
+
+  @Test
+  void aPartialMatchScoresBetweenZeroAndOne() {
+    index("Doc One", "Semantic vector search over documents.");
+
+    double score = search("vector search", 5, 0.0).get(0).getValue();
+
+    // A partial overlap must land strictly between "no match" and "identical";
+    // an embedder without graded similarity collapses this to 0.0 or 1.0.
+    assertTrue(score > 0.05 && score < 1.0, "partial match scored " + score);
+  }
+
+  @Test
+  void unrelatedTextDoesNotClearAHighThreshold() {
+    index("Doc One", "Semantic vector search over documents.");
+
+    assertTrue(search("sourdough bread proving basket", 5, 0.5).isEmpty());
+  }
+
+  @Test
+  void nearestNeighbourOrdersByDescendingSimilarity() {
+    index("Vectors", "Dense vector similarity for retrieval.");
+    index("Cooking", "Slow roasted vegetables with herbs.");
+
+    var results = search("dense vector retrieval", 5, 0.0);
+
+    for (int i = 1; i < results.size(); i++) {
+      assertTrue(results.get(i - 1).getValue() >= results.get(i).getValue());
+    }
+  }
+
+  @Test
+  void limitCapsTheNumberOfNeighbours() {
+    index("One", "Ranking signals for retrieval.");
+    index("Two", "Retrieval ranking heuristics.");
+    index("Three", "More about retrieval ranking.");
+
+    assertEquals(2, search("retrieval ranking", 2, 0.0).size());
+  }
+
+  @Test
+  void deletingAVectorRemovesItFromResults() {
+    Document indexed = index("Doc One", "Semantic vector search over documents.");
+
+    assertTrue(indexService.deleteDocumentVector(indexed.getVectorId()));
+
+    assertTrue(search("semantic vector search", 5, 0.0).isEmpty());
+  }
+
+  @Test
+  void rebuildRepopulatesAnIndexThatLostItsVectors() {
+    Document first = index("One", "Ranking signals for retrieval.");
+    Document second = index("Two", "Retrieval ranking heuristics.");
+
+    // Drop both vectors while leaving the rows alone, which is what a re-created
+    // or lost index looks like from the database side.
+    indexService.deleteDocumentVector(first.getVectorId());
+    indexService.deleteDocumentVector(second.getVectorId());
+    assertTrue(
+        search("retrieval ranking", 5, 0.0).isEmpty(), "the index should be empty at this point");
+
+    assertEquals(2, indexService.rebuildIndex());
+
+    assertEquals(2, search("retrieval ranking", 5, 0.0).size());
+    assertNotNull(documentRepository.findById(first.getId()).orElseThrow().getVectorId());
+  }
+
+  @Test
+  void reIndexingADocumentUpsertsRatherThanAddingASecondVector() {
+    Document indexed = index("One", "Ranking signals for retrieval.");
+
+    assertEquals(
+        indexed.getId().toString(),
+        indexed.getVectorId(),
+        "the vector id must be the document id, which is what makes an index write an upsert");
+
+    indexService.indexDocument(indexed);
+    indexService.indexDocument(indexed);
+
+    assertEquals(
+        1,
+        search("ranking signals retrieval", 5, 0.0).size(),
+        "re-indexing must overwrite the vector, not add another that matches independently");
   }
 
   private String hash(String content) {
     try {
       MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      byte[] hash = digest.digest(content.getBytes());
-      return Base64.getEncoder().encodeToString(hash);
+      return Base64.getEncoder()
+          .encodeToString(digest.digest(content.getBytes(StandardCharsets.UTF_8)));
     } catch (NoSuchAlgorithmException e) {
       throw new IllegalStateException("Unable to hash content", e);
     }

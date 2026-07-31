@@ -12,9 +12,9 @@ import io.github.semanticsearch.model.Document;
 import io.github.semanticsearch.repository.DocumentRepository;
 
 /**
- * Simple in-memory implementation of {@link DocumentRepository} for fast, isolated unit tests.
- * Only the methods that are used in tests are implemented; the rest throw
- * {@link UnsupportedOperationException} to surface unexpected usage.
+ * Simple in-memory implementation of {@link DocumentRepository} for fast, isolated unit tests. Only
+ * the methods that are used in tests are implemented; the rest throw {@link
+ * UnsupportedOperationException} to surface unexpected usage.
  */
 public class InMemoryDocumentRepository implements DocumentRepository {
 
@@ -32,6 +32,11 @@ public class InMemoryDocumentRepository implements DocumentRepository {
     List<Document> filtered =
         store.values().stream().filter(doc -> doc.isIndexed() == indexed).toList();
     return page(filtered, pageable);
+  }
+
+  @Override
+  public List<Document> findByIndexedFalse() {
+    return store.values().stream().filter(doc -> !doc.isIndexed()).toList();
   }
 
   @Override
@@ -63,9 +68,7 @@ public class InMemoryDocumentRepository implements DocumentRepository {
 
   @Override
   public Optional<Document> findByTitle(String title) {
-    return store.values().stream()
-        .filter(doc -> Objects.equals(title, doc.getTitle()))
-        .findFirst();
+    return store.values().stream().filter(doc -> Objects.equals(title, doc.getTitle())).findFirst();
   }
 
   @Override

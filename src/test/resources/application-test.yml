@@ -1,0 +1,41 @@
+spring:
+  # Tests run against no external services, so Redis autoconfiguration is off.
+  # Leaving it on registers a health indicator that keeps dialling localhost:6379
+  # and reports the application DOWN.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+  datasource:
+    url: jdbc:h2:mem:semantic;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  flyway:
+    enabled: false
+  cache:
+    type: simple
+
+# Disables RedisConfig so tests need no Redis. Without this the context would
+# still start, but cache writes would fail against a connection to nowhere.
+cache:
+  redis:
+    enabled: false
+
+elasticsearch:
+  stub-enabled: true
+
+embedding:
+  local-enabled: true
+  dimensions: 128
+
+# Pinned rather than inherited so ranking tests do not silently change meaning if
+# the production defaults are retuned.
+search:
+  hybrid-enabled: true
+  hybrid-vector-weight: 0.7
+  recency-enabled: false
+  bm25-k1: 1.2
+  bm25-b: 0.75
