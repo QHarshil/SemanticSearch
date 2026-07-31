@@ -1,39 +1,59 @@
 spring:
-  main:
-    allow-bean-definition-overriding: true
   application:
     name: Semantic Search Java
-    description: Semantic Search Microservice in Java
-    version: 1.0.0
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:semanticsearch}
     username: ${POSTGRES_USER:postgres}
     password: ${POSTGRES_PASSWORD:postgres}
-    driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
       ddl-auto: update
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
-        hbm2ddl.auto: update
     show-sql: false
   flyway:
     enabled: false
     baseline-on-migrate: true
-  redis:
-    host: ${REDIS_HOST:localhost}
-    port: ${REDIS_PORT:6379}
-    password: ${REDIS_PASSWORD:}
+  data:
+    # spring.data.redis is the Boot 3 property path. Boot 2 read these from
+    # spring.redis, which Boot 3 ignores.
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+  jackson:
+    deserialization:
+      # Reject request bodies carrying fields the DTO does not define. Jackson
+      # ignores them by default, so a client misspelling a parameter would get a
+      # 200 and default behaviour instead of being told the field is unknown.
+      fail-on-unknown-properties: true
   cache:
-    type: redis
+    type: ${SPRING_CACHE_TYPE:redis}
     redis:
       time-to-live: 3600
   security:
     user:
       name: ${ADMIN_USER:admin}
       password: ${ADMIN_PASSWORD:admin}
+
+# Settings for the @Retry and @CircuitBreaker annotations on EmbeddingService.
+# resilience4j-spring-boot3 builds its registries from properties and ignores
+# hand-built RetryConfig or CircuitBreakerConfig beans, so these have to live here
+# to take effect.
+resilience4j:
+  retry:
+    instances:
+      embedding:
+        max-attempts: 3
+        wait-duration: 1s
+  circuitbreaker:
+    instances:
+      embedding:
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 5
+        sliding-window-size: 10
 
 elasticsearch:
   host: ${ELASTICSEARCH_HOST:localhost}
@@ -43,18 +63,26 @@ elasticsearch:
   password: ${ELASTICSEARCH_PASSWORD:}
   index:
     name: semantic-search
-    dimensions: 1536
     auto-init: true
-  stub-enabled: ${ELASTICSEARCH_STUB_ENABLED:false}
+  # In-memory vector index. Defaults to true so the service starts with no
+  # external dependencies; set to false to use a real Elasticsearch cluster.
+  # Whichever index is active, its mapping is built from embedding.dimensions
+  # below, so the two cannot disagree on vector width.
+  stub-enabled: ${ELASTICSEARCH_STUB_ENABLED:true}
 
 embedding:
+  # When true (the default) embeddings are produced locally by HashingEmbedder
+  # and no API key is needed. Set to false to call the hosted provider.
+  local-enabled: ${EMBEDDING_LOCAL_ENABLED:true}
+  # Vector width. This is the single source of truth: the search index mapping is
+  # built from it, and the hosted provider is asked to return this many
+  # dimensions. Use 1536 for text-embedding-3-small at full width.
+  dimensions: ${EMBEDDING_DIMENSIONS:256}
   api:
     key: ${EMBEDDING_API_KEY:}
-    prompt: ${EMBEDDING_API_PROMPT:false}
-  model: text-embedding-3-small
+    base-url: ${EMBEDDING_API_BASE_URL:https://api.openai.com}
+  model: ${EMBEDDING_MODEL:text-embedding-3-small}
   timeout: 30
-  stub-enabled: ${EMBEDDING_STUB_ENABLED:true}
-  stub-dimensions: 64
 
 security:
   auth:
@@ -66,6 +94,13 @@ security:
     max-age: 3600
 
 management:
+  health:
+    elasticsearch:
+      # Off by default because elasticsearch.stub-enabled is on by default, and
+      # the in-memory index has no cluster to ping - the autoconfigured indicator
+      # would report DOWN out of the box and fail any readiness probe. Set this
+      # to true alongside ELASTICSEARCH_STUB_ENABLED=false; docker-compose does.
+      enabled: ${MANAGEMENT_HEALTH_ELASTICSEARCH_ENABLED:false}
   endpoints:
     web:
       exposure:
@@ -113,33 +148,54 @@ eval:
   run-on-startup: false
 
 ---
+# Runs the whole service with no external dependencies: in-memory database,
+# in-memory vector index, local embeddings and an in-process cache. This is what
+# the README quick start uses, so every setting here has to override the default
+# profile rather than restate it.
 spring:
   config:
     activate:
-      on-profile: local
-  flyway:
-    enabled: false
+      on-profile: demo
+  # Redis autoconfiguration is switched off entirely rather than just unused.
+  # Leaving it on registers a connection factory and a health indicator that
+  # keep dialling localhost:6379, which makes /actuator/health report DOWN and
+  # fills the log with connection failures on a profile whose whole point is
+  # needing nothing external.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+  datasource:
+    url: jdbc:h2:mem:semanticsearch;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
   jpa:
     hibernate:
-      ddl-auto: update
-    properties:
-      hibernate:
-        hbm2ddl.auto: update
-  datasource:
-    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:semanticsearch}
-    username: ${POSTGRES_USER:postgres}
-    password: ${POSTGRES_PASSWORD:postgres}
-    driver-class-name: org.postgresql.Driver
+      ddl-auto: create-drop
+  cache:
+    type: simple
+
+cache:
+  redis:
+    enabled: false
+
+elasticsearch:
+  stub-enabled: true
+
+embedding:
+  local-enabled: true
+
+seed:
+  demo:
+    enabled: true
+
+security:
+  auth:
+    enabled: false
+
 logging:
   level:
     root: INFO
     io.github.semanticsearch: INFO
     org.springframework: WARN
     org.hibernate: WARN
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
-    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
-  file:
-    name: logs/semantic-search.log
-    max-size: 10MB
-    max-history: 7

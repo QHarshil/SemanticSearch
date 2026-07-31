@@ -24,20 +24,29 @@ public class SearchService {
 
   private static final Logger log = LoggerFactory.getLogger(SearchService.class);
 
+  /** How many vector candidates to fetch per requested result before re-ranking. */
+  private static final int CANDIDATE_MULTIPLIER = 5;
+
+  /** Ceiling on the candidate pool, so a large limit cannot pull the whole index. */
+  private static final int MAX_CANDIDATES = 200;
+
   private final EmbeddingService embeddingService;
   private final IndexService indexService;
   private final DocumentRepository documentRepository;
   private final SearchProperties searchProperties;
+  private final CorpusStatistics corpusStatistics;
 
   public SearchService(
       EmbeddingService embeddingService,
       IndexService indexService,
       DocumentRepository documentRepository,
-      SearchProperties searchProperties) {
+      SearchProperties searchProperties,
+      CorpusStatistics corpusStatistics) {
     this.embeddingService = embeddingService;
     this.indexService = indexService;
     this.documentRepository = documentRepository;
     this.searchProperties = searchProperties;
+    this.corpusStatistics = corpusStatistics;
   }
 
   /**
@@ -47,7 +56,11 @@ public class SearchService {
    * @param request Search request containing query and parameters
    * @return List of search results
    */
-  @Cacheable(value = "searchResults", key = "#request.toString()", unless = "#result.isEmpty()")
+  // Keyed on the request object itself, which has value-based equals/hashCode over
+  // every field that changes the result. A key derived from identity, such as the
+  // default toString of a class that does not override it, would make each call a
+  // fresh entry: the cache would never hit and would grow without bound.
+  @Cacheable(value = "searchResults", key = "#request", unless = "#result.isEmpty()")
   public List<SearchResult> search(SearchRequest request) {
     log.debug("Performing semantic search for query: {}", request.getQuery());
 
@@ -58,11 +71,26 @@ public class SearchService {
       return Collections.emptyList();
     }
 
-    // Find similar documents
     int limit = Math.max(1, request.getLimit());
     double minScore = Math.max(0.0, request.getMinScore());
+
+    // Over-fetch from the vector stage, then re-rank and truncate to limit.
+    // Retrieving exactly `limit` candidates would leave the lexical stage
+    // powerless: a document matching the query strongly on words but sitting just
+    // outside the vector top-N could never be recovered, however high BM25 scored
+    // it. The wider pool is what lets hybrid scoring change the outcome rather
+    // than relabel it.
+    int candidateLimit = Math.min(limit * CANDIDATE_MULTIPLIER, MAX_CANDIDATES);
+    // Retrieval is deliberately unthresholded. minScore is a floor on the score a
+    // caller receives, and the score a caller receives is the blended one computed
+    // below - passing minScore to the vector stage would apply it to a different,
+    // always-lower number and drop documents whose final score clears the bar.
+    //
+    // Filters do go into retrieval, so the candidate pool is filled with documents
+    // that can actually be returned. The post-filter below still runs, because the
+    // in-memory index does not pre-filter and has to enforce the same contract.
     List<Map.Entry<UUID, Double>> similarDocuments =
-        indexService.findSimilarDocuments(queryVector, limit, minScore);
+        indexService.findSimilarDocuments(queryVector, candidateLimit, 0.0, request.getFilters());
 
     if (similarDocuments.isEmpty()) {
       log.debug("No similar documents found for query: {}", request.getQuery());
@@ -106,6 +134,12 @@ public class SearchService {
                 searchProperties.isRecencyEnabled(),
                 searchProperties.getRecencyHalfLifeSeconds());
 
+        // Applied here, against the score that will be reported, so a result can
+        // never come back scoring below the threshold the caller asked for.
+        if (withRecency < minScore) {
+          continue;
+        }
+
         SearchResult result =
             SearchResult.builder()
                 .id(document.getId())
@@ -121,6 +155,19 @@ public class SearchService {
 
         results.add(result);
       }
+    }
+
+    // Re-sort by the final score. Results arrive in vector-score order, and the
+    // blending, metadata boosts and recency decay above all change that score.
+    // Skipping this sort would return an order reflecting vector similarity alone,
+    // making every one of those relevance features inert - including in the eval
+    // metrics, which depend solely on rank position.
+    results.sort(Comparator.comparingDouble(SearchResult::getScore).reversed());
+
+    // Truncate after re-ranking, not before: the point of the wider candidate
+    // pool is that the final top-N is chosen on the blended score.
+    if (results.size() > limit) {
+      results = new ArrayList<>(results.subList(0, limit));
     }
 
     log.debug("Found {} results for query: {}", results.size(), request.getQuery());
@@ -143,7 +190,7 @@ public class SearchService {
     }
 
     Document document = documentOpt.get();
-    List<Double> documentVector = embeddingService.embed(document.getContent());
+    List<Double> documentVector = embeddingService.embed(Tokenizer.indexableText(document));
     if (documentVector.isEmpty()) {
       log.warn("Failed to generate embedding for document: {}", documentId);
       return Collections.emptyList();
@@ -247,7 +294,8 @@ public class SearchService {
       return true;
     }
 
-    Map<String, String> metadata = document.getMetadata() == null ? Map.of() : document.getMetadata();
+    Map<String, String> metadata =
+        document.getMetadata() == null ? Map.of() : document.getMetadata();
     for (Map.Entry<String, String> filter : filters.entrySet()) {
       String value = metadata.get(filter.getKey());
       if (value == null || !value.equalsIgnoreCase(filter.getValue())) {
@@ -258,7 +306,8 @@ public class SearchService {
   }
 
   private Map<String, String> projectMetadata(Document document, List<String> fields) {
-    Map<String, String> metadata = document.getMetadata() == null ? Map.of() : document.getMetadata();
+    Map<String, String> metadata =
+        document.getMetadata() == null ? Map.of() : document.getMetadata();
     if (fields == null || fields.isEmpty()) {
       return metadata;
     }
@@ -272,65 +321,45 @@ public class SearchService {
     return projected;
   }
 
+  /**
+   * BM25 over the candidate documents, using corpus-wide term statistics.
+   *
+   * <p>Note this re-ranks rather than retrieves: only documents the vector search already returned
+   * can be scored, so a document that matches the query lexically but fell below the vector
+   * minScore is unreachable. That is a property of the pipeline, not of this method.
+   */
   private Map<UUID, Double> computeLexicalScores(String query, Map<UUID, Document> documents) {
-    List<String> queryTerms = tokenizeList(query);
-    Map<String, Integer> queryFreq = termFreq(queryTerms);
-    int docCount = documents.size();
-    double avgLen =
-        documents.values().stream()
-            .mapToInt(doc -> tokenizeList(doc.getContent()).size())
-            .average()
-            .orElse(1.0);
-
-    Map<String, Integer> docFreq = new HashMap<>();
-    documents
-        .values()
-        .forEach(
-            doc -> {
-              Set<String> terms = new HashSet<>(tokenizeList(doc.getContent()));
-              for (String t : terms) {
-                docFreq.merge(t, 1, Integer::sum);
-              }
-            });
+    Map<String, Integer> queryFreq = termFreq(Tokenizer.tokenize(query));
+    CorpusStatistics.Snapshot corpus = corpusStatistics.current();
+    double k1 = searchProperties.getBm25K1();
+    double b = searchProperties.getBm25B();
 
     Map<UUID, Double> scores = new HashMap<>();
     for (Map.Entry<UUID, Document> entry : documents.entrySet()) {
-      List<String> docTerms = tokenizeList(entry.getValue().getContent());
+      List<String> docTerms = Tokenizer.tokenize(entry.getValue());
       Map<String, Integer> tf = termFreq(docTerms);
       double docLen = docTerms.size();
       double bm25 = 0.0;
+
       for (String term : queryFreq.keySet()) {
-        int df = docFreq.getOrDefault(term, 0);
-        if (df == 0) {
+        double freq = tf.getOrDefault(term, 0);
+        if (freq == 0) {
           continue;
         }
+        int df = corpus.documentFrequencyOf(term);
+        if (df == 0) {
+          // The corpus snapshot predates this document; treat the term as rare
+          // rather than skipping a match the document genuinely contains.
+          df = 1;
+        }
         double idf =
-            Math.log((docCount - df + 0.5) / (df + 0.5) + 1.0); // smooth idf
-        double freq = tf.getOrDefault(term, 0);
-        double k1 = searchProperties.getBm25K1();
-        double b = searchProperties.getBm25B();
-        double denom = freq + k1 * (1 - b + b * (docLen / avgLen));
+            Math.log((corpus.documentCount() - df + 0.5) / (df + 0.5) + 1.0); // smoothed idf
+        double denom = freq + k1 * (1 - b + b * (docLen / corpus.averageLength()));
         bm25 += idf * ((freq * (k1 + 1)) / (denom == 0 ? 1 : denom));
       }
       scores.put(entry.getKey(), bm25 == 0.0 ? 0.0 : ScoreCalculator.clamp(bm25 / (bm25 + 1)));
     }
     return scores;
-  }
-
-  private Set<String> tokenize(String text) {
-    if (text == null || text.isBlank()) {
-      return Set.of();
-    }
-    String[] parts = text.toLowerCase().split("[^a-z0-9]+");
-    return Arrays.stream(parts).filter(p -> !p.isBlank()).collect(Collectors.toSet());
-  }
-
-  private List<String> tokenizeList(String text) {
-    if (text == null || text.isBlank()) {
-      return List.of();
-    }
-    String[] parts = text.toLowerCase().split("[^a-z0-9]+");
-    return Arrays.stream(parts).filter(p -> !p.isBlank()).toList();
   }
 
   private Map<String, Integer> termFreq(List<String> terms) {
@@ -340,5 +369,4 @@ public class SearchService {
     }
     return tf;
   }
-
 }

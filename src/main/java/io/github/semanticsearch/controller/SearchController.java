@@ -3,12 +3,12 @@ package io.github.semanticsearch.controller;
 import java.util.List;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import io.github.semanticsearch.model.SearchRequest;
 import io.github.semanticsearch.model.SearchResult;
 import io.github.semanticsearch.service.IndexService;
@@ -26,6 +26,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
+
 /**
  * Controller for search operations. Provides endpoints for semantic search and similar document
  * search.
@@ -68,9 +69,11 @@ public class SearchController {
   public ResponseEntity<List<SearchResult>> search(
       @Parameter(description = "Search query text") @RequestParam @NotBlank String query,
       @Parameter(description = "Maximum number of results")
-          @RequestParam(defaultValue = "10") @Positive int limit,
+          @RequestParam(defaultValue = "10")
+          @Positive
+          int limit,
       @Parameter(description = "Minimum similarity score")
-          @RequestParam(defaultValue = "0.7")
+          @RequestParam(defaultValue = "" + SearchRequest.DEFAULT_MIN_SCORE)
           @DecimalMin(value = "0.0")
           @DecimalMax(value = "1.0")
           double minScore,
@@ -143,7 +146,7 @@ public class SearchController {
           @Min(1)
           int limit,
       @Parameter(description = "Minimum similarity score")
-          @RequestParam(defaultValue = "0.7")
+          @RequestParam(defaultValue = "" + SearchRequest.DEFAULT_MIN_SCORE)
           @DecimalMin(value = "0.0")
           @DecimalMax(value = "1.0")
           double minScore) {
@@ -165,7 +168,7 @@ public class SearchController {
       responses = {@ApiResponse(responseCode = "200", description = "Index rebuilt successfully")})
   public ResponseEntity<String> rebuildIndex() {
     log.info("Rebuilding search index");
-    indexService.initializeIndex();
-    return ResponseEntity.ok("Index rebuilt successfully");
+    int reindexed = indexService.rebuildIndex();
+    return ResponseEntity.ok("Index rebuilt over " + reindexed + " documents");
   }
 }

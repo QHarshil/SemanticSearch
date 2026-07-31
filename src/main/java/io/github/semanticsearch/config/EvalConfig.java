@@ -1,6 +1,5 @@
 package io.github.semanticsearch.config;
 
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -36,7 +35,11 @@ public class EvalConfig {
       Path out = Path.of("target/eval/report.json");
       Files.createDirectories(out.getParent());
       new ObjectMapper().writeValue(out.toFile(), result);
-      log.info("Eval completed: MRR={} NDCG={} Recall@5={}", result.mrr(), result.ndcg(), result.recallAtK());
+      log.info(
+          "Eval completed: MRR={} NDCG={} Recall@5={}",
+          result.mrr(),
+          result.ndcg(),
+          result.recallAtK());
     };
   }
 }

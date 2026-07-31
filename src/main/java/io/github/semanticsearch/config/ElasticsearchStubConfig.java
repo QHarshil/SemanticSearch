@@ -7,8 +7,8 @@ import org.springframework.context.annotation.Configuration;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.json.JsonpMapper;
 import co.elastic.clients.json.jackson.JacksonJsonpMapper;
-import co.elastic.clients.transport.Endpoint;
 import co.elastic.clients.transport.ElasticsearchTransport;
+import co.elastic.clients.transport.Endpoint;
 import co.elastic.clients.transport.TransportOptions;
 
 /**
@@ -29,19 +29,23 @@ public class ElasticsearchStubConfig {
 
     @Override
     public <RequestT, ResponseT, ErrorT> ResponseT performRequest(
-        RequestT request, Endpoint<RequestT, ResponseT, ErrorT> endpoint, TransportOptions options) {
+        RequestT request,
+        Endpoint<RequestT, ResponseT, ErrorT> endpoint,
+        TransportOptions options) {
       throw new UnsupportedOperationException(
-          "Elasticsearch stub is active; no remote transport available for endpoint " + endpoint.id());
+          "Elasticsearch stub is active; no remote transport available for endpoint "
+              + endpoint.id());
     }
 
     @Override
-    public <RequestT, ResponseT, ErrorT> java.util.concurrent.CompletableFuture<ResponseT>
-        performRequestAsync(
+    public <RequestT, ResponseT, ErrorT>
+        java.util.concurrent.CompletableFuture<ResponseT> performRequestAsync(
             RequestT request,
             Endpoint<RequestT, ResponseT, ErrorT> endpoint,
             TransportOptions options) {
       throw new UnsupportedOperationException(
-          "Elasticsearch stub is active; no remote transport available for endpoint " + endpoint.id());
+          "Elasticsearch stub is active; no remote transport available for endpoint "
+              + endpoint.id());
     }
 
     @Override

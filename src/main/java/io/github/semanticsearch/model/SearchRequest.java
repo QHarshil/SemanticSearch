@@ -2,13 +2,28 @@ package io.github.semanticsearch.model;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
+
 /** Data transfer object for search requests. Contains query text and optional search parameters. */
 public class SearchRequest {
+
+  /**
+   * Default floor on the score a result must reach to be returned.
+   *
+   * <p>Calibrated against the local lexical embedder over the demo corpus, where natural-language
+   * queries score their best match between 0.32 and 0.53. Measured over the eight gold queries,
+   * every one still returns results at a floor of 0.3 and none do at 0.4, so 0.2 keeps a margin
+   * below that cliff while dropping the weakly-matching tail: it takes those queries from 64
+   * results to 18.
+   *
+   * <p>A hosted embedding model spreads scores differently and may warrant a higher floor.
+   */
+  public static final double DEFAULT_MIN_SCORE = 0.2;
 
   @NotBlank(message = "Query text is required")
   private String query;
@@ -18,7 +33,7 @@ public class SearchRequest {
 
   @DecimalMin(value = "0.0", inclusive = true, message = "Min score must be >= 0")
   @DecimalMax(value = "1.0", inclusive = true, message = "Min score must be <= 1")
-  private double minScore = 0.7;
+  private double minScore = DEFAULT_MIN_SCORE;
 
   private Map<String, String> filters = Map.of();
   private List<String> fields = List.of();
@@ -106,10 +121,55 @@ public class SearchRequest {
     this.includeHighlights = includeHighlights;
   }
 
+  /**
+   * Value semantics over every field. Required because this type is used as a cache key for {@code
+   * searchResults}; identity semantics there mean the cache can never hit.
+   */
+  @Override
+  public boolean equals(Object other) {
+    if (this == other) {
+      return true;
+    }
+    if (!(other instanceof SearchRequest that)) {
+      return false;
+    }
+    return limit == that.limit
+        && Double.compare(minScore, that.minScore) == 0
+        && includeContent == that.includeContent
+        && includeHighlights == that.includeHighlights
+        && Objects.equals(query, that.query)
+        && Objects.equals(filters, that.filters)
+        && Objects.equals(fields, that.fields);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(query, limit, minScore, filters, fields, includeContent, includeHighlights);
+  }
+
+  @Override
+  public String toString() {
+    return "SearchRequest{query='"
+        + query
+        + "', limit="
+        + limit
+        + ", minScore="
+        + minScore
+        + ", filters="
+        + filters
+        + ", fields="
+        + fields
+        + ", includeContent="
+        + includeContent
+        + ", includeHighlights="
+        + includeHighlights
+        + '}';
+  }
+
   public static final class Builder {
     private String query;
     private int limit = 10;
-    private double minScore = 0.7;
+    private double minScore = DEFAULT_MIN_SCORE;
     private Map<String, String> filters = Map.of();
     private List<String> fields = List.of();
     private boolean includeContent = true;

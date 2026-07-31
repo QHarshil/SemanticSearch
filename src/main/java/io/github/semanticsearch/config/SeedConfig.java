@@ -11,7 +11,8 @@ import io.github.semanticsearch.service.SeedService;
 public class SeedConfig {
 
   @Bean
-  CommandLineRunner seedRunner(SeedService seedService, @Value("${seed.demo.enabled:false}") boolean enabled) {
+  CommandLineRunner seedRunner(
+      SeedService seedService, @Value("${seed.demo.enabled:false}") boolean enabled) {
     return args -> {
       if (enabled) {
         seedService.seedDemoDocuments();

@@ -12,6 +12,7 @@ public class SearchProperties {
 
   /** Weight for vector similarity in hybrid scoring (0-1). */
   private double hybridVectorWeight = 0.7;
+
   /** Alternate weight for profile B (A/B testing). */
   private double hybridVectorWeightProfileB = 0.5;
 
@@ -26,6 +27,7 @@ public class SearchProperties {
 
   /** BM25 parameters for the lexical component. */
   private double bm25K1 = 1.2;
+
   private double bm25B = 0.75;
 
   /** Optional metadata boosts. Key = metadata key, value = additive boost. */

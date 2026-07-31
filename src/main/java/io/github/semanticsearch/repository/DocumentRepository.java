@@ -38,6 +38,14 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
   Page<Document> findByIndexed(boolean indexed, Pageable pageable);
 
   /**
+   * Find documents whose row committed but whose index write did not. These are the documents
+   * search cannot return, and the input to reconciliation.
+   *
+   * @return documents not present in the search index
+   */
+  List<Document> findByIndexedFalse();
+
+  /**
    * Find documents containing the given text in title or content.
    *
    * @param text The text to search for

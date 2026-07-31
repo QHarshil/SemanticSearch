@@ -29,7 +29,8 @@ public final class ScoreCalculator {
     if (metadataBoosts == null || metadataBoosts.isEmpty()) {
       return clamp(score);
     }
-    Map<String, String> metadata = document.getMetadata() == null ? Map.of() : document.getMetadata();
+    Map<String, String> metadata =
+        document.getMetadata() == null ? Map.of() : document.getMetadata();
     double boosted = score;
     for (Map.Entry<String, Double> boost : metadataBoosts.entrySet()) {
       if (metadata.containsKey(boost.getKey())) {

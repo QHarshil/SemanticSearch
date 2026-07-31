@@ -2,9 +2,7 @@ package io.github.semanticsearch.service;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -68,13 +66,27 @@ public class EvalService {
     return new EvalResult(queries.size(), mrr, ndcg, recall, perQuery);
   }
 
+  /**
+   * Runs the built-in gold set against the seeded demo corpus.
+   *
+   * <p>Queries are phrased the way someone would actually search rather than copied from the
+   * document text, so a result depends on graded similarity and not on an exact string match.
+   *
+   * <p>Every pair is answerable: the gold document genuinely covers the query's topic. A pair whose
+   * answer is not in the corpus, or whose gold document is only loosely related, can be satisfied
+   * only by accident and drags the reported score down for reasons unrelated to ranking quality.
+   */
   public EvalResult runCuratedEval(int k) {
     List<EvalQuery> curated =
         List.of(
-            new EvalQuery("vector search embeddings", lookup("Vector Search Basics")),
-            new EvalQuery("ranking signals metadata boosts", lookup("Ranking Signals")),
-            new EvalQuery("latency budget p95", lookup("Latency Budgets")),
-            new EvalQuery("recency decay freshness", lookup("Latency Budgets")));
+            new EvalQuery("how does embedding similarity work", lookup("Vector Search Basics")),
+            new EvalQuery("what affects result ordering", lookup("Ranking Signals")),
+            new EvalQuery("keeping p95 response time low", lookup("Latency Budgets")),
+            new EvalQuery("boosting newer documents", lookup("Recency and Freshness")),
+            new EvalQuery("measuring search quality offline", lookup("Evaluating Relevance")),
+            new EvalQuery("term frequency scoring", lookup("Inverted Indexes and BM25")),
+            new EvalQuery("splitting large files into passages", lookup("Chunking Long Documents")),
+            new EvalQuery("avoiding repeated work per query", lookup("Caching Query Results")));
     return runEval(curated, k);
   }
 
@@ -121,12 +133,25 @@ public class EvalService {
 
   public record QueryEval(String query, double rr, double ndcg, double recall) {}
 
-  public record EvalResult(int totalQueries, double mrr, double ndcg, double recallAtK, List<QueryEval> details) {}
+  public record EvalResult(
+      int totalQueries, double mrr, double ndcg, double recallAtK, List<QueryEval> details) {}
 
+  /**
+   * Resolves a gold document by title, failing if it is absent.
+   *
+   * <p>Failing loudly matters here: returning an empty list instead would score every metric for
+   * that query as 0.0, making a broken or unseeded gold set indistinguishable from genuinely poor
+   * ranking. The harness would report those zeros as though they were a measurement.
+   */
   private List<UUID> lookup(String title) {
     return documentRepository
         .findByTitle(title)
         .map(d -> List.of(d.getId()))
-        .orElseGet(List::of);
+        .orElseThrow(
+            () ->
+                new IllegalStateException(
+                    "Gold set references a document that is not in the corpus: '"
+                        + title
+                        + "'. Seed the demo documents first (POST /api/v1/documents/seed)."));
   }
 }

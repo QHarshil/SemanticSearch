@@ -7,8 +7,8 @@ import org.apache.http.client.CredentialsProvider;
 import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.elasticsearch.client.RestClient;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Bean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
@@ -21,7 +21,10 @@ import co.elastic.clients.transport.rest_client.RestClientTransport;
  * and authentication.
  */
 @Configuration
-@ConditionalOnProperty(name = "elasticsearch.stub-enabled", havingValue = "false", matchIfMissing = true)
+@ConditionalOnProperty(
+    name = "elasticsearch.stub-enabled",
+    havingValue = "false",
+    matchIfMissing = true)
 public class ElasticsearchConfig {
 
   @Value("${elasticsearch.host}")

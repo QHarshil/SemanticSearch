@@ -11,6 +11,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
+
 @Entity
 @Table(name = "documents")
 @EntityListeners(AuditingEntityListener.class)

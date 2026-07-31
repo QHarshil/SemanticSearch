@@ -1,14 +1,10 @@
 package io.github.semanticsearch.controller;
 
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.Base64;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -18,11 +14,9 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import io.github.semanticsearch.model.Document;
 import io.github.semanticsearch.repository.DocumentRepository;
-import io.github.semanticsearch.service.IndexService;
+import io.github.semanticsearch.service.DocumentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -31,9 +25,13 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import jakarta.validation.Valid;
+
 /**
  * Controller for document management operations. Provides endpoints for CRUD operations on
  * documents.
+ *
+ * <p>Writes are delegated to {@link DocumentService}, which owns hashing, indexing and cache
+ * invalidation as one unit. Reads that need no orchestration go straight to the repository.
  */
 @RestController
 @RequestMapping("/api/v1/documents")
@@ -44,12 +42,12 @@ public class DocumentController {
   private static final Logger log = LoggerFactory.getLogger(DocumentController.class);
 
   private final DocumentRepository documentRepository;
-  private final IndexService indexService;
+  private final DocumentService documentService;
 
   public DocumentController(
-      DocumentRepository documentRepository, IndexService indexService) {
+      DocumentRepository documentRepository, DocumentService documentService) {
     this.documentRepository = documentRepository;
-    this.indexService = indexService;
+    this.documentService = documentService;
   }
 
   /**
@@ -75,28 +73,7 @@ public class DocumentController {
       })
   public ResponseEntity<Document> createDocument(@Valid @RequestBody Document document) {
     log.debug("Creating document: {}", document.getTitle());
-
-    document.setMetadata(normalizeMetadata(document.getMetadata()));
-
-    // Generate content hash
-    String contentHash = generateContentHash(document.getContent());
-    document.setContentHash(contentHash);
-
-    // Check if document with same content already exists
-    Optional<Document> existingDocument = documentRepository.findByContentHash(contentHash);
-    if (existingDocument.isPresent()) {
-      throw new ResponseStatusException(
-          HttpStatus.CONFLICT, "Document with same content already exists");
-    }
-
-    // Save document
-    document.setIndexed(false);
-    Document savedDocument = documentRepository.save(document);
-
-    // Index document for search
-    Document indexedDocument = indexService.indexDocument(savedDocument);
-
-    return ResponseEntity.status(HttpStatus.CREATED).body(indexedDocument);
+    return ResponseEntity.status(HttpStatus.CREATED).body(documentService.create(document));
   }
 
   /**
@@ -142,7 +119,10 @@ public class DocumentController {
             description = "Document updated",
             content = @Content(schema = @Schema(implementation = Document.class))),
         @ApiResponse(responseCode = "404", description = "Document not found"),
-        @ApiResponse(responseCode = "400", description = "Invalid document data")
+        @ApiResponse(responseCode = "400", description = "Invalid document data"),
+        @ApiResponse(
+            responseCode = "409",
+            description = "Another document already has this content")
       })
   public ResponseEntity<Document> updateDocument(
       @Parameter(description = "Document ID") @PathVariable UUID id,
@@ -150,27 +130,9 @@ public class DocumentController {
 
     log.debug("Updating document: {}", id);
 
-    return documentRepository
-        .findById(id)
-        .map(
-            existingDocument -> {
-              // Update fields
-              existingDocument.setTitle(document.getTitle());
-              existingDocument.setContent(document.getContent());
-              existingDocument.setMetadata(normalizeMetadata(document.getMetadata()));
-
-              // Generate new content hash
-              String contentHash = generateContentHash(document.getContent());
-              existingDocument.setContentHash(contentHash);
-
-              // Save updated document
-              Document savedDocument = documentRepository.save(existingDocument);
-
-              // Re-index document for search
-              Document indexedDocument = indexService.updateDocumentIndex(savedDocument);
-
-              return ResponseEntity.ok(indexedDocument);
-            })
+    return documentService
+        .update(id, document)
+        .map(ResponseEntity::ok)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
   }
 
@@ -193,21 +155,10 @@ public class DocumentController {
       @Parameter(description = "Document ID") @PathVariable UUID id) {
     log.debug("Deleting document: {}", id);
 
-    return documentRepository
-        .findById(id)
-        .map(
-            document -> {
-              // Delete from search index
-              if (document.getVectorId() != null) {
-                indexService.deleteDocumentVector(document.getVectorId());
-              }
-
-              // Delete from database
-              documentRepository.delete(document);
-
-              return ResponseEntity.noContent().<Void>build();
-            })
-        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
+    if (!documentService.delete(id)) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found");
+    }
+    return ResponseEntity.noContent().build();
   }
 
   /**
@@ -239,7 +190,15 @@ public class DocumentController {
     log.debug(
         "Listing documents: page={}, size={}, sort={}, direction={}", page, size, sort, direction);
 
-    Sort.Direction sortDirection = Sort.Direction.fromString(direction);
+    // fromString throws IllegalArgumentException, which reaches the catch-all
+    // handler as a 500. An unrecognised direction is a client error.
+    Sort.Direction sortDirection;
+    try {
+      sortDirection = Sort.Direction.fromString(direction);
+    } catch (IllegalArgumentException e) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "Sort direction must be ASC or DESC, got '" + direction + "'");
+    }
     PageRequest pageRequest = PageRequest.of(page, size, sortDirection, sort);
 
     Page<Document> documents = documentRepository.findAll(pageRequest);
@@ -279,26 +238,5 @@ public class DocumentController {
     Page<Document> documents =
         documentRepository.findByTitleOrContentContainingIgnoreCase(text, pageRequest);
     return ResponseEntity.ok(documents);
-  }
-
-  private Map<String, String> normalizeMetadata(Map<String, String> metadata) {
-    return metadata == null ? new HashMap<>() : metadata;
-  }
-
-  /**
-   * Generate SHA-256 hash of document content. Used to detect duplicate documents.
-   *
-   * @param content Document content
-   * @return Base64-encoded hash
-   */
-  private String generateContentHash(String content) {
-    try {
-      MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      byte[] hash = digest.digest(content.getBytes());
-      return Base64.getEncoder().encodeToString(hash);
-    } catch (NoSuchAlgorithmException e) {
-      log.error("Failed to generate content hash", e);
-      throw new RuntimeException("Failed to generate content hash", e);
-    }
   }
 }
