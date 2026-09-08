@@ -18,9 +18,9 @@ import io.github.semanticsearch.model.Document;
 import io.github.semanticsearch.repository.DocumentRepository;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
-import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.*;
+import co.elastic.clients.elasticsearch.core.mget.MultiGetResponseItem;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
 import co.elastic.clients.elasticsearch.indices.CreateIndexResponse;
@@ -57,12 +57,8 @@ public class IndexService {
    */
   private static final int CHUNK_OVERFETCH = 4;
 
-  /**
-   * Ceiling on passages read back per document when scoring a known set. A document longer than
-   * this many passages is scored on its first {@code PASSAGE_FETCH_CEILING}, which is a bound worth
-   * having: without one, a single call can pull an unbounded number of vectors.
-   */
-  private static final int PASSAGE_FETCH_CEILING = 32;
+  /** Hard ceiling on passages pulled for one query, which is also Elasticsearch's own limit. */
+  private static final int MAX_PASSAGE_FETCH = 10_000;
 
   /**
    * The in-memory index, keyed by passage id exactly as Elasticsearch is. Storing the document id
@@ -119,7 +115,6 @@ public class IndexService {
                                                                 .index(true)
                                                                 .similarity("cosine")))
                                             .properties("document_id", p -> p.keyword(k -> k))
-                                            .properties("ordinal", p -> p.integer(i -> i))
                                             .properties("content_hash", p -> p.keyword(k -> k))
                                             // Flattened makes arbitrary metadata keys
                                             // filterable as exact terms with no mapping
@@ -205,39 +200,61 @@ public class IndexService {
   }
 
   /**
-   * Index a document, replacing any vector already held for it.
+   * Index a document, replacing whatever the index holds for it.
    *
-   * <p>The document is split into passages and each is written under an id derived from the
-   * document id and its position, so indexing the same document twice overwrites passage by passage
-   * instead of accumulating duplicates that would each match a query separately. That is what lets
-   * a failed or interrupted write simply be retried.
+   * <p>Each passage is written under an id derived from the document id and its position, so
+   * indexing the same document twice overwrites passage by passage instead of accumulating
+   * duplicates that would each match a query separately. That is what lets a failed or interrupted
+   * write simply be retried.
    *
-   * @param document Document to index
-   * @return Updated document with vector ID
+   * <p>Every passage is embedded before any of them is written. Writing as they came would let a
+   * provider that fails halfway leave the index holding the first passages of the new text beside
+   * the last passages of the old, under one document id and with nothing recording that the two
+   * disagree. {@code passageCount} is what bounds every later deletion, so it has to describe an
+   * index state that actually happened.
+   *
+   * @return the saved document, or the unchanged argument if any passage could not be embedded
    */
   @Transactional
   public Document indexDocument(Document document) {
-    if (stubEnabled) {
-      return indexDocumentInStub(document);
+    List<Chunker.Chunk> chunks = chunker.chunk(document);
+    List<List<Double>> embeddings = embedAll(document, chunks);
+    if (embeddings == null) {
+      return document;
     }
+    return stubEnabled
+        ? indexDocumentInStub(document, chunks, embeddings)
+        : indexDocumentInElasticsearch(document, chunks, embeddings);
+  }
+
+  /**
+   * @return one embedding per passage, or null if any of them failed
+   */
+  private List<List<Double>> embedAll(Document document, List<Chunker.Chunk> chunks) {
+    List<List<Double>> embeddings = new ArrayList<>(chunks.size());
+    for (Chunker.Chunk chunk : chunks) {
+      List<Double> embedding = embeddingService.embed(chunk.text());
+      if (embedding.isEmpty()) {
+        log.error(
+            "Failed to generate embedding for document {} passage {}; leaving the index unchanged",
+            document.getId(),
+            chunk.ordinal());
+        return null;
+      }
+      embeddings.add(embedding);
+    }
+    return embeddings;
+  }
+
+  private Document indexDocumentInElasticsearch(
+      Document document, List<Chunker.Chunk> chunks, List<List<Double>> embeddings) {
     try {
-      List<Chunker.Chunk> chunks = chunker.chunk(document);
-      for (Chunker.Chunk chunk : chunks) {
-        List<Double> embedding = embeddingService.embed(chunk.text());
-        if (embedding.isEmpty()) {
-          log.error(
-              "Failed to generate embedding for document {} passage {}",
-              document.getId(),
-              chunk.ordinal());
-          return document;
-        }
-        String passageId = passageIdOf(document.getId(), chunk.ordinal());
+      for (int ordinal = 0; ordinal < chunks.size(); ordinal++) {
+        String passageId = passageIdOf(document.getId(), ordinal);
+        List<Double> embedding = embeddings.get(ordinal);
         IndexResponse response =
             elasticsearchClient.index(
-                i ->
-                    i.index(indexName)
-                        .id(passageId)
-                        .document(sourceOf(document, chunk.ordinal(), embedding)));
+                i -> i.index(indexName).id(passageId).document(sourceOf(document, embedding)));
         log.debug("Indexed {}, result: {}", passageId, response.result());
       }
       // An edit can shorten a document. Writing the new passages is an upsert on
@@ -247,14 +264,18 @@ public class IndexService {
 
       log.info(
           "Document indexed in Elasticsearch: {} in {} passages", document.getId(), chunks.size());
-      document.setVectorId(vectorIdOf(document));
-      document.setPassageCount(chunks.size());
-      document.setIndexed(true);
-      return documentRepository.save(document);
+      return saveIndexed(document, chunks.size());
     } catch (IOException e) {
       log.error("Failed to index document: {}", document.getId(), e);
       throw new RuntimeException("Failed to index document", e);
     }
+  }
+
+  private Document saveIndexed(Document document, int passageCount) {
+    document.setVectorId(vectorIdOf(document));
+    document.setPassageCount(passageCount);
+    document.setIndexed(true);
+    return documentRepository.save(document);
   }
 
   /**
@@ -264,11 +285,16 @@ public class IndexService {
    * invisible until the next refresh. The ids come from the document id and counts the caller
    * already holds, so this is exact whatever the index has got around to.
    */
-  private void deletePassages(UUID documentId, int from, int until) throws IOException {
+  private int deletePassages(UUID documentId, int from, int until) throws IOException {
+    int deleted = 0;
     for (int ordinal = from; ordinal < until; ordinal++) {
       String passageId = passageIdOf(documentId, ordinal);
-      elasticsearchClient.delete(d -> d.index(indexName).id(passageId));
+      DeleteResponse response = elasticsearchClient.delete(d -> d.index(indexName).id(passageId));
+      if (response.result() != co.elastic.clients.elasticsearch._types.Result.NotFound) {
+        deleted++;
+      }
     }
+    return deleted;
   }
 
   /**
@@ -302,16 +328,17 @@ public class IndexService {
   public boolean deleteDocumentVectors(Document document) {
     UUID documentId = document.getId();
     if (stubEnabled) {
-      stubVectors.values().removeIf(stored -> stored.documentId().equals(documentId));
-      log.info("Stub passages deleted for document {}", documentId);
-      return true;
+      boolean removed =
+          stubVectors.values().removeIf(stored -> stored.documentId().equals(documentId));
+      log.info("Stub passages deleted for document {}: {}", documentId, removed);
+      return removed;
     }
     try {
       // A row written before passage counts were recorded reads as zero, and its
       // single passage is at ordinal 0, so the floor of one covers it.
-      deletePassages(documentId, 0, Math.max(1, document.getPassageCount()));
-      log.info("Passages deleted for document {}", documentId);
-      return true;
+      int deleted = deletePassages(documentId, 0, Math.max(1, document.getPassageCount()));
+      log.info("Deleted {} passages for document {}", deleted, documentId);
+      return deleted > 0;
     } catch (IOException e) {
       log.error("Failed to delete passages for document {}", documentId, e);
       return false;
@@ -356,43 +383,27 @@ public class IndexService {
     }
 
     int size = Math.max(1, limit);
-    int passages = Math.min(10_000, size * CHUNK_OVERFETCH);
     List<Float> vector = queryVector.stream().map(Double::floatValue).toList();
     List<Query> preFilters = metadataFilters(filters);
 
     try {
-      SearchResponse<ObjectNode> response =
-          elasticsearchClient.search(
-              s -> {
-                s.index(indexName)
-                    .knn(
-                        k ->
-                            k.field("vector")
-                                .queryVector(vector)
-                                .k(passages)
-                                .numCandidates(candidatePoolFor(passages))
-                                .filter(preFilters))
-                    .size(passages);
-                // A threshold of zero excludes nothing, and passing it through would
-                // still drop anti-correlated documents once converted, so it is left
-                // unset rather than translated.
-                if (minScore > 0.0) {
-                  s.minScore(elasticsearchScoreOf(minScore));
-                }
-                return s;
-              },
-              ObjectNode.class);
-
-      Map<UUID, Double> best = new LinkedHashMap<>();
-      for (Hit<ObjectNode> hit : response.hits().hits()) {
-        ObjectNode source = hit.source();
-        if (source != null && source.hasNonNull("document_id")) {
-          UUID documentId = UUID.fromString(source.get("document_id").asText());
-          double score = hit.score() == null ? 0.0 : cosineOf(hit.score());
-          best.merge(documentId, score, Math::max);
-        }
+      int passages = Math.min(MAX_PASSAGE_FETCH, size * CHUNK_OVERFETCH);
+      PassageHits hits = knnPassages(vector, preFilters, minScore, passages);
+      // Several passages of one document can fill the neighbourhood, so a fixed
+      // fan-out returns fewer documents than were asked for whenever the best
+      // passages cluster in a few of them. Widening only helps if the fetch came
+      // back full; if it did not, the index has nothing more to give.
+      if (hits.documents().size() < size && hits.saturated() && passages < MAX_PASSAGE_FETCH) {
+        int wider = Math.min(MAX_PASSAGE_FETCH, passages * CHUNK_OVERFETCH);
+        log.debug(
+            "{} passages collapsed to {} documents for a limit of {}; refetching {}",
+            passages,
+            hits.documents().size(),
+            size,
+            wider);
+        hits = knnPassages(vector, preFilters, minScore, wider);
       }
-      return topDocuments(best, size);
+      return topDocuments(hits.documents(), size);
     } catch (IOException e) {
       log.error("Failed to find similar documents", e);
       return Collections.emptyList();
@@ -400,23 +411,75 @@ public class IndexService {
   }
 
   /**
+   * @param documents the best passage score per document
+   * @param saturated whether the search returned as many passages as it was asked for, which is
+   *     what says a wider fetch could still find more
+   */
+  private record PassageHits(Map<UUID, Double> documents, boolean saturated) {}
+
+  private PassageHits knnPassages(
+      List<Float> vector, List<Query> preFilters, double minScore, int passages)
+      throws IOException {
+    SearchResponse<ObjectNode> response =
+        elasticsearchClient.search(
+            s -> {
+              s.index(indexName)
+                  .knn(
+                      k ->
+                          k.field("vector")
+                              .queryVector(vector)
+                              .k(passages)
+                              .numCandidates(candidatePoolFor(passages))
+                              .filter(preFilters))
+                  .size(passages);
+              // A threshold of zero excludes nothing, and passing it through would
+              // still drop anti-correlated documents once converted, so it is left
+              // unset rather than translated.
+              if (minScore > 0.0) {
+                s.minScore(elasticsearchScoreOf(minScore));
+              }
+              return s;
+            },
+            ObjectNode.class);
+
+    Map<UUID, Double> best = new LinkedHashMap<>();
+    for (Hit<ObjectNode> hit : response.hits().hits()) {
+      ObjectNode source = hit.source();
+      if (source != null && source.hasNonNull("document_id")) {
+        UUID documentId = UUID.fromString(source.get("document_id").asText());
+        double score = hit.score() == null ? 0.0 : cosineOf(hit.score());
+        best.merge(documentId, score, Math::max);
+      }
+    }
+    return new PassageHits(best, response.hits().hits().size() >= passages);
+  }
+
+  /**
    * Cosine similarity between a query vector and specific documents, on the same scale {@link
-   * #findSimilarDocuments} reports.
+   * #findSimilarDocuments} reports, taking each document's best passage.
    *
    * <p>Needed because hybrid retrieval unions two candidate lists. A document the lexical side
    * found but the kNN search did not has no similarity attached to it, and leaving it at zero would
    * let a term match alone decide the final score for exactly the documents the vector stage was
    * least sure about.
    *
-   * @return a score per document that is present in the index; ids it does not hold are absent
+   * <p>Takes documents and not ids, because {@code passageCount} is what turns a document into the
+   * exact set of passage ids to read. Two things follow from reading by id. There is no fan-out
+   * budget to exceed, so a document with many passages cannot be silently dropped from the result;
+   * and Elasticsearch serves a get from the translog, so a passage written seconds ago is visible
+   * without waiting for a refresh. A search would miss it, which is the case this method exists to
+   * cover.
+   *
+   * @return a score per document the index holds; documents it does not hold are absent
    */
-  public Map<UUID, Double> similarityTo(List<Double> queryVector, Collection<UUID> documentIds) {
-    if (documentIds == null || documentIds.isEmpty() || queryVector.isEmpty()) {
+  public Map<UUID, Double> similarityTo(List<Double> queryVector, Collection<Document> documents) {
+    if (documents == null || documents.isEmpty() || queryVector.isEmpty()) {
       return Map.of();
     }
     if (stubEnabled) {
       Map<UUID, Double> scores = new HashMap<>();
-      Set<UUID> wanted = Set.copyOf(documentIds);
+      Set<UUID> wanted = new HashSet<>();
+      documents.forEach(document -> wanted.add(document.getId()));
       stubVectors.forEach(
           (passageId, stored) -> {
             if (wanted.contains(stored.documentId())) {
@@ -427,21 +490,21 @@ public class IndexService {
       return scores;
     }
 
-    // Fetched by document id, not by passage id: the caller knows which documents
-    // it wants and not how many passages each was split into.
-    List<FieldValue> ids =
-        documentIds.stream().map(id -> FieldValue.of(id.toString())).distinct().toList();
+    List<String> passageIds = new ArrayList<>();
+    for (Document document : documents) {
+      for (int ordinal = 0; ordinal < Math.max(1, document.getPassageCount()); ordinal++) {
+        passageIds.add(passageIdOf(document.getId(), ordinal));
+      }
+    }
     try {
-      SearchResponse<ObjectNode> response =
-          elasticsearchClient.search(
-              s ->
-                  s.index(indexName)
-                      .query(q -> q.terms(t -> t.field("document_id").terms(v -> v.value(ids))))
-                      .size(Math.min(10_000, ids.size() * PASSAGE_FETCH_CEILING)),
-              ObjectNode.class);
+      MgetResponse<ObjectNode> response =
+          elasticsearchClient.mget(m -> m.index(indexName).ids(passageIds), ObjectNode.class);
       Map<UUID, Double> scores = new HashMap<>();
-      for (Hit<ObjectNode> hit : response.hits().hits()) {
-        ObjectNode source = hit.source();
+      for (MultiGetResponseItem<ObjectNode> item : response.docs()) {
+        if (item.isFailure() || item.result() == null || !item.result().found()) {
+          continue;
+        }
+        ObjectNode source = item.result().source();
         if (source == null || !source.hasNonNull("document_id") || !source.has("vector")) {
           continue;
         }
@@ -454,7 +517,7 @@ public class IndexService {
       }
       return scores;
     } catch (IOException e) {
-      log.error("Failed to read vectors for {} documents", ids.size(), e);
+      log.error("Failed to read vectors for {} documents", documents.size(), e);
       return Map.of();
     }
   }
@@ -494,32 +557,22 @@ public class IndexService {
     return queries;
   }
 
-  private Document indexDocumentInStub(Document document) {
-    List<Chunker.Chunk> chunks = chunker.chunk(document);
-    for (Chunker.Chunk chunk : chunks) {
-      List<Double> embedding = embeddingService.embed(chunk.text());
-      if (embedding.isEmpty()) {
-        log.error(
-            "Failed to generate embedding for document {} passage {}",
-            document.getId(),
-            chunk.ordinal());
-        return document;
-      }
+  private Document indexDocumentInStub(
+      Document document, List<Chunker.Chunk> chunks, List<List<Double>> embeddings) {
+    for (int ordinal = 0; ordinal < chunks.size(); ordinal++) {
       stubVectors.put(
-          passageIdOf(document.getId(), chunk.ordinal()),
-          new StubVector(document.getId(), chunk.ordinal(), embedding));
+          passageIdOf(document.getId(), ordinal),
+          new StubVector(document.getId(), ordinal, embeddings.get(ordinal)));
     }
-    // Same reason as the Elasticsearch path: a shorter edit leaves a tail.
+    // Same reason as the Elasticsearch path: a shorter edit leaves a tail. Done
+    // by predicate here because the map allows it; Elasticsearch deletes the
+    // same range by id.
     stubVectors
         .values()
         .removeIf(
             stored ->
                 stored.documentId().equals(document.getId()) && stored.ordinal() >= chunks.size());
-
-    document.setVectorId(vectorIdOf(document));
-    document.setPassageCount(chunks.size());
-    document.setIndexed(true);
-    return documentRepository.save(document);
+    return saveIndexed(document, chunks.size());
   }
 
   private List<Map.Entry<UUID, Double>> findSimilarInStub(
@@ -575,11 +628,10 @@ public class IndexService {
    * dense_vector, which expects an array of numbers. A {@code List<Double>} and a {@code
    * Map<String, String>} serialise to the array and object the mapping declares.
    */
-  static Map<String, Object> sourceOf(Document document, int ordinal, List<Double> embedding) {
+  static Map<String, Object> sourceOf(Document document, List<Double> embedding) {
     Map<String, Object> source = new LinkedHashMap<>();
     source.put("vector", embedding);
     source.put("document_id", document.getId().toString());
-    source.put("ordinal", ordinal);
     source.put("content_hash", document.getContentHash());
     source.put("metadata", metadataOf(document));
     return source;

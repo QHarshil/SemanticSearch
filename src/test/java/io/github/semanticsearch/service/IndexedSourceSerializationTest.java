@@ -46,8 +46,7 @@ class IndexedSourceSerializationTest {
 
   @Test
   void theVectorIsWrittenAsAnArrayOfNumbers() {
-    String json =
-        serialize(IndexService.sourceOf(document(Map.of()), 0, List.of(0.5, -0.25, 0.125)));
+    String json = serialize(IndexService.sourceOf(document(Map.of()), List.of(0.5, -0.25, 0.125)));
 
     assertTrue(
         json.contains("\"vector\":[0.5,-0.25,0.125]"),
@@ -56,7 +55,7 @@ class IndexedSourceSerializationTest {
 
   @Test
   void theDocumentIdIsWrittenSoResultsCanBeResolvedBackToRows() {
-    String json = serialize(IndexService.sourceOf(document(Map.of()), 0, List.of(1.0)));
+    String json = serialize(IndexService.sourceOf(document(Map.of()), List.of(1.0)));
 
     assertTrue(
         json.contains("\"document_id\":\"11111111-2222-3333-4444-555555555555\""),
@@ -66,7 +65,7 @@ class IndexedSourceSerializationTest {
   @Test
   void metadataIsWrittenAsLowerCasedFieldsSoTermFiltersMatchCaseInsensitively() {
     String json =
-        serialize(IndexService.sourceOf(document(Map.of("topic", "Ranking")), 0, List.of(1.0)));
+        serialize(IndexService.sourceOf(document(Map.of("topic", "Ranking")), List.of(1.0)));
 
     assertTrue(
         json.contains("\"metadata\":{\"topic\":\"ranking\"}"),
@@ -75,7 +74,7 @@ class IndexedSourceSerializationTest {
 
   @Test
   void emptyMetadataIsWrittenAsAnEmptyObjectRatherThanOmitted() {
-    String json = serialize(IndexService.sourceOf(document(Map.of()), 0, List.of(1.0)));
+    String json = serialize(IndexService.sourceOf(document(Map.of()), List.of(1.0)));
 
     assertTrue(json.contains("\"metadata\":{}"), json);
   }

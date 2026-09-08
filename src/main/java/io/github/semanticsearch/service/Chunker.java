@@ -24,7 +24,15 @@ import io.github.semanticsearch.model.Document;
  */
 public final class Chunker {
 
-  private static final Pattern WHITESPACE = Pattern.compile("\\s+");
+  /** Java's {@code \\s} is ASCII-only, so a non-breaking space would join two words into one. */
+  private static final Pattern WHITESPACE = Pattern.compile("[\\s\\p{Z}]+");
+
+  /**
+   * Most of a window that the title may take. The title is repeated in every passage, so a long one
+   * would otherwise push each passage past the window it was sized to fit and reintroduce the
+   * truncation passages exist to avoid.
+   */
+  private static final double TITLE_SHARE = 0.25;
 
   private final int maxWords;
   private final int overlapWords;
@@ -64,24 +72,40 @@ public final class Chunker {
    * without chunking.
    */
   public List<Chunk> chunk(Document document) {
-    String title = document.getTitle() == null ? "" : document.getTitle().strip();
     String content = document.getContent() == null ? "" : document.getContent().strip();
-
     String[] words = content.isEmpty() ? new String[0] : WHITESPACE.split(content);
     if (words.length <= maxWords) {
       return List.of(new Chunk(0, Tokenizer.indexableText(document)));
     }
 
-    int stride = maxWords - overlapWords;
+    String title = trimmedTitle(document);
+    int titleWords = title.isEmpty() ? 0 : WHITESPACE.split(title).length;
+    int window = Math.max(1, maxWords - titleWords);
+    int stride = Math.max(1, window - Math.min(overlapWords, window - 1));
+
     List<Chunk> chunks = new ArrayList<>();
     for (int start = 0; start < words.length; start += stride) {
-      int end = Math.min(start + maxWords, words.length);
+      int end = Math.min(start + window, words.length);
       chunks.add(new Chunk(chunks.size(), head(title, words, start, end)));
       if (end == words.length) {
         break;
       }
     }
     return List.copyOf(chunks);
+  }
+
+  /** The title, cut to {@link #TITLE_SHARE} of the window so it cannot crowd out the content. */
+  private String trimmedTitle(Document document) {
+    String title = document.getTitle() == null ? "" : document.getTitle().strip();
+    if (title.isEmpty()) {
+      return "";
+    }
+    String[] words = WHITESPACE.split(title);
+    int allowed = Math.max(1, (int) (maxWords * TITLE_SHARE));
+    if (words.length <= allowed) {
+      return title;
+    }
+    return String.join(" ", java.util.Arrays.copyOfRange(words, 0, allowed));
   }
 
   private static String head(String title, String[] words, int start, int end) {

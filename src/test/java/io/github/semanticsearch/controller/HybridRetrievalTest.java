@@ -163,8 +163,9 @@ class HybridRetrievalTest {
     // readable. Its vector never reached the kNN result, so the number below is
     // the back-fill's: without it the vector term is zero and the score is the
     // lexical weight alone.
+    Document gold = documentRepository.findById(goldId).orElseThrow();
     double vectorScore =
-        indexService.similarityTo(embeddingService.embed(QUERY), List.of(goldId)).get(goldId);
+        indexService.similarityTo(embeddingService.embed(QUERY), List.of(gold)).get(goldId);
     double lexicalScore = lexicalIndex.score(QUERY, List.of(goldId)).get(goldId);
     assertTrue(vectorScore > 0.0, "the fixture needs a non-zero vector score to be meaningful");
 

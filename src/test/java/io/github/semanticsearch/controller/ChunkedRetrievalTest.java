@@ -1,7 +1,7 @@
 package io.github.semanticsearch.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -100,8 +100,34 @@ class ChunkedRetrievalTest {
 
     assertTrue(documentService.delete(longDocument.getId()));
 
-    assertTrue(search(QUERY).isEmpty(), "a passage outlived its document");
-    assertTrue(search("tomatoes courgettes stone fruit").isEmpty());
+    // Asserted against the index and not through the API. A deleted row is
+    // dropped at hydration whatever the index still holds, so search cannot tell
+    // an empty index from an index full of orphans.
+    assertTrue(
+        indexService.similarityTo(embeddingService.embed(QUERY), List.of(longDocument)).isEmpty(),
+        "a passage outlived its document");
+    assertTrue(search(QUERY).isEmpty());
+  }
+
+  @Test
+  void aFailedEmbeddingLeavesTheIndexAsItWas() throws Exception {
+    int before = longDocument.getPassageCount();
+    assertTrue(before > 1);
+
+    // Half a write is worse than none. The first passages would hold the new text
+    // and the rest the old, under one id, with nothing recording the disagreement.
+    Document broken = new Document();
+    broken.setTitle(TITLE);
+    broken.setContent("");
+    broken.setMetadata(Map.of("topic", "produce"));
+
+    assertThrows(
+        Exception.class,
+        () -> documentService.update(longDocument.getId(), broken),
+        "an empty document should not be accepted");
+
+    Document reloaded = documentRepository.findById(longDocument.getId()).orElseThrow();
+    assertEquals(before, reloaded.getPassageCount());
   }
 
   @Test
@@ -171,15 +197,18 @@ class ChunkedRetrievalTest {
   }
 
   @Test
-  void everyPassageOfADocumentCollapsesToOneResult() throws Exception {
-    // Passages are how the index stores a document and not something a caller
-    // asked about. A query matching several of them must answer with the
-    // document once, at its best passage's score.
-    JsonNode results = search("tomatoes courgettes stone fruit summer menu");
+  void everyPassageOfADocumentCollapsesToOneResult() {
+    // Asserted on the index, because SearchService unions candidates into a set
+    // and would hide a duplicate the retriever emitted. A query matching several
+    // passages must answer with the document once, at its best passage's score.
+    List<Double> query = embeddingService.embed("tomatoes courgettes stone fruit summer menu");
+    List<UUID> retrieved =
+        indexService.findSimilarDocuments(query, 10, 0.0).stream().map(Map.Entry::getKey).toList();
 
-    assertFalse(results.isEmpty());
-    List<String> ids = new ArrayList<>();
-    results.forEach(result -> ids.add(result.get("id").asText()));
-    assertEquals(ids.size(), ids.stream().distinct().count(), "the same document came back twice");
+    assertTrue(retrieved.contains(longDocument.getId()));
+    assertEquals(
+        retrieved.size(),
+        retrieved.stream().distinct().count(),
+        "the retriever returned the same document more than once");
   }
 }

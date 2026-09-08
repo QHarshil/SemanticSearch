@@ -65,8 +65,7 @@ class IndexServiceTest {
     Document unrelated = index("Bread Baking", "Sourdough needs a long cold proof.");
     List<Double> queryVector = embeddingService.embed("vector search embeddings");
 
-    Map<UUID, Double> scores =
-        indexService.similarityTo(queryVector, List.of(match.getId(), unrelated.getId()));
+    Map<UUID, Double> scores = indexService.similarityTo(queryVector, List.of(match, unrelated));
 
     assertEquals(2, scores.size());
     double fromKnn =
@@ -82,14 +81,17 @@ class IndexServiceTest {
   }
 
   @Test
-  void similarityToOmitsIdsTheIndexDoesNotHold() {
-    // Absent rather than zero, so a caller can tell "not indexed" apart from
-    // "indexed and unrelated" and decide what to do about it.
+  void similarityToOmitsDocumentsTheIndexDoesNotHold() {
+    // Absent, not zero, so a caller can tell "not indexed" apart from "indexed
+    // and unrelated" and decide what to do about it.
     Document indexed = index("Vector Search", "Vector search compares embeddings.");
+    Document neverIndexed = new Document();
+    neverIndexed.setId(UUID.randomUUID());
+    neverIndexed.setPassageCount(1);
 
     Map<UUID, Double> scores =
         indexService.similarityTo(
-            embeddingService.embed("vector search"), List.of(indexed.getId(), UUID.randomUUID()));
+            embeddingService.embed("vector search"), List.of(indexed, neverIndexed));
 
     assertEquals(Set.of(indexed.getId()), scores.keySet());
   }
@@ -101,7 +103,7 @@ class IndexServiceTest {
     Map<UUID, Double> scores =
         indexService.similarityTo(
             embeddingService.embed("Latency Budgets\nLatency budgets keep responses under a p95."),
-            List.of(indexed.getId()));
+            List.of(indexed));
 
     assertEquals(1.0, scores.get(indexed.getId()), 1e-9);
   }

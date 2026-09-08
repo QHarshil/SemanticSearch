@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -27,6 +28,8 @@ import org.testcontainers.utility.DockerImageName;
 
 import io.github.semanticsearch.model.Document;
 import io.github.semanticsearch.repository.DocumentRepository;
+
+import co.elastic.clients.elasticsearch.ElasticsearchClient;
 
 /**
  * Exercises retrieval against a real Elasticsearch, which the rest of the suite never does because
@@ -68,6 +71,7 @@ class ElasticsearchKnnTest {
   }
 
   @Autowired private IndexService indexService;
+  @Autowired private ElasticsearchClient elasticsearchClient;
   @Autowired private EmbeddingService embeddingService;
   @Autowired private DocumentRepository documentRepository;
 
@@ -109,8 +113,7 @@ class ElasticsearchKnnTest {
     Document unrelated = index("Bread Baking", "Sourdough needs a long cold proof.", Map.of());
 
     List<Double> queryVector = embeddingService.embed("vector search embeddings");
-    Map<UUID, Double> scores =
-        indexService.similarityTo(queryVector, List.of(match.getId(), unrelated.getId()));
+    Map<UUID, Double> scores = indexService.similarityTo(queryVector, List.of(match, unrelated));
 
     assertEquals(2, scores.size(), "both indexed documents should have been found");
     assertTrue(
@@ -124,15 +127,17 @@ class ElasticsearchKnnTest {
     assertEquals(fromKnn, scores.get(match.getId()), 1e-6);
   }
 
-  /** Ids the index does not hold are absent, so a caller can tell that apart from a zero score. */
+  /** Documents the index does not hold are absent, so that is distinguishable from a zero score. */
   @Test
   void similarityToOmitsDocumentsTheIndexDoesNotHold() {
     Document indexed = index("Vector Search", "Vector search compares embeddings.", Map.of());
-    UUID absent = UUID.randomUUID();
+    Document neverIndexed = new Document();
+    neverIndexed.setId(UUID.randomUUID());
+    neverIndexed.setPassageCount(1);
 
     Map<UUID, Double> scores =
         indexService.similarityTo(
-            embeddingService.embed("vector search"), List.of(indexed.getId(), absent));
+            embeddingService.embed("vector search"), List.of(indexed, neverIndexed));
 
     assertEquals(Set.of(indexed.getId()), scores.keySet());
   }
@@ -154,16 +159,19 @@ class ElasticsearchKnnTest {
   @Test
   void shorteningADocumentDeletesThePassagesItNoLongerHas() {
     Document indexed = index("Long", longText("trapped ion qubits hold entanglement"), Map.of());
-    assertTrue(indexed.getPassageCount() > 1);
+    int before = indexed.getPassageCount();
+    assertTrue(before > 1);
+    assertEquals(before, passagesInIndex(indexed.getId()));
 
     indexed.setContent("Tomatoes and courgettes in August.");
     Document shortened = indexService.updateDocumentIndex(indexed);
     indexService.refreshIndex();
 
+    // Counted in the index, not inferred from a query. A stale passage of a
+    // document that still exists is retrieved under the same id as a fresh one,
+    // so no search can tell the two apart.
     assertEquals(1, shortened.getPassageCount());
-    assertTrue(
-        search("trapped ion qubits entanglement", 10, 0.6).isEmpty(),
-        "a passage of the previous version is still in the index");
+    assertEquals(1, passagesInIndex(indexed.getId()), "the previous version left a tail");
   }
 
   @Test
@@ -174,8 +182,21 @@ class ElasticsearchKnnTest {
     assertTrue(indexService.deleteDocumentVectors(indexed));
     indexService.refreshIndex();
 
-    assertTrue(search("trapped ion qubits entanglement", 10, 0.0).isEmpty());
-    assertTrue(search("tomatoes courgettes stone fruit", 10, 0.0).isEmpty());
+    assertEquals(0, passagesInIndex(indexed.getId()));
+  }
+
+  /** How many passages the cluster actually holds for a document. */
+  private long passagesInIndex(UUID documentId) {
+    try {
+      return elasticsearchClient
+          .count(
+              c ->
+                  c.index("semantic-search")
+                      .query(q -> q.term(t -> t.field("document_id").value(documentId.toString()))))
+          .count();
+    } catch (IOException e) {
+      throw new IllegalStateException("Could not count passages for " + documentId, e);
+    }
   }
 
   /** Four hundred words of filler with {@code tail} at the end, past any one embedding window. */

@@ -161,9 +161,10 @@ public class DocumentService {
     }
 
     Document document = found.get();
-    if (document.getVectorId() != null) {
-      indexService.deleteDocumentVectors(document);
-    }
+    // Called whatever the row says. A write that failed partway can leave passages
+    // behind with vectorId still unset, and skipping the index on that basis is
+    // how a passage outlives the document it belongs to.
+    indexService.deleteDocumentVectors(document);
     documentRepository.delete(document);
     lexicalIndex.invalidate();
     return true;

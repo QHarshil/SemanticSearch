@@ -33,12 +33,13 @@ class ChunkerTest {
 
     List<Chunker.Chunk> chunks = new Chunker(10, 4).chunk(document);
 
-    // Stride is 6, so passages start at words 1, 7, 13, 19 and the last runs to
-    // the end.
-    assertEquals(List.of(0, 1, 2, 3), chunks.stream().map(Chunker.Chunk::ordinal).toList());
-    assertTrue(chunks.get(0).text().endsWith(words(1, 10)));
-    assertTrue(chunks.get(1).text().endsWith(words(7, 16)));
-    assertTrue(chunks.get(3).text().endsWith(words(19, 25)));
+    // The one-word title comes out of the window, leaving nine words of content
+    // and a stride of five, so passages start at words 1, 6, 11, 16, 21 and the
+    // last runs to the end.
+    assertEquals(List.of(0, 1, 2, 3, 4), chunks.stream().map(Chunker.Chunk::ordinal).toList());
+    assertTrue(chunks.get(0).text().endsWith(words(1, 9)), chunks.get(0).text());
+    assertTrue(chunks.get(1).text().endsWith(words(6, 14)), chunks.get(1).text());
+    assertTrue(chunks.get(4).text().endsWith(words(21, 25)), chunks.get(4).text());
   }
 
   @Test
@@ -51,7 +52,7 @@ class ChunkerTest {
       String previous = chunks.get(i - 1).text();
       String current = chunks.get(i).text();
       for (int word = 0; word < 4; word++) {
-        String shared = "w" + (1 + i * 6 + word);
+        String shared = "w" + (1 + i * 5 + word);
         assertTrue(previous.contains(shared), shared + " missing from passage " + (i - 1));
         assertTrue(current.contains(shared), shared + " missing from passage " + i);
       }
@@ -84,6 +85,53 @@ class ChunkerTest {
 
     assertEquals(1, chunks.size());
     assertEquals("Title only", chunks.get(0).text());
+  }
+
+  @Test
+  void noPassageExceedsTheWindowEvenWithALongTitle() {
+    // The title is repeated in every passage, so an unbounded one would push each
+    // passage past the size the window was chosen to fit and put text back
+    // outside what the model reads.
+    Document document = document(words(100, 140), words(1, 60));
+
+    List<Chunker.Chunk> chunks = new Chunker(20, 5).chunk(document);
+
+    assertTrue(chunks.size() > 1);
+    for (Chunker.Chunk chunk : chunks) {
+      int length = chunk.text().split("\\s+").length;
+      assertTrue(length <= 20, "passage " + chunk.ordinal() + " holds " + length + " words");
+    }
+  }
+
+  @Test
+  void aDocumentWithNoTitleIsStillSplit() {
+    Document document = new Document();
+    document.setContent(words(1, 25));
+
+    List<Chunker.Chunk> chunks = new Chunker(10, 4).chunk(document);
+
+    assertTrue(chunks.size() > 1);
+    assertTrue(chunks.get(0).text().startsWith("w1 "), chunks.get(0).text());
+  }
+
+  @Test
+  void theBoundaryBetweenOneWindowAndTwo() {
+    Chunker chunker = new Chunker(10, 4);
+
+    assertEquals(1, chunker.chunk(document("T", words(1, 10))).size());
+    assertEquals(2, chunker.chunk(document("T", words(1, 11))).size());
+  }
+
+  @Test
+  void aNonBreakingSpaceSeparatesWordsLikeAnyOtherSpace() {
+    // Java's \s does not match U+00A0, so text pasted from a word processor
+    // would count as one enormous word and never be split.
+    String content =
+        String.join("\u00a0", IntStream.rangeClosed(1, 25).mapToObj(i -> "w" + i).toList());
+
+    List<Chunker.Chunk> chunks = new Chunker(10, 4).chunk(document("T", content));
+
+    assertTrue(chunks.size() > 1, "non-breaking spaces did not separate words");
   }
 
   @Test

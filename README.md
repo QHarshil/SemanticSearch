@@ -196,12 +196,20 @@ and close to none.
 Overlap exists so a boundary cannot fall through the middle of the one sentence
 that answers a query and leave both halves too weak to retrieve. The title is
 repeated at the head of every passage, since a window from the middle of a long
-document otherwise arrives with nothing saying what it belongs to.
+document otherwise arrives with nothing saying what it belongs to; it counts
+against the window and is cut to a quarter of it, so a long title cannot push
+each passage past the size it was chosen to fit.
 
 A document shorter than the window is one passage holding exactly the text it
 would have been indexed with anyway, so a corpus of short documents is unchanged.
 `Document.passageCount` records the split, which is what lets an edit that
 shortens a document delete precisely the passages it no longer has.
+
+Every passage is embedded before any of them is written. A provider that fails
+halfway would otherwise leave the index holding the opening of the new text
+beside the tail of the old, under one document id, with the recorded count
+describing neither. A failed write leaves the index exactly as it was and the
+row marked unindexed, which is the state `reconcileUnindexed` repairs.
 
 ### Embeddings
 

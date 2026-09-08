@@ -120,25 +120,31 @@ public class SearchService {
       return Collections.emptyList();
     }
 
-    Map<UUID, Double> vectorScores = scoresOf(vectorHits);
-    // A document only the lexical side found still has a vector, and its true
-    // similarity is what the blend needs. Leaving it at zero would let a term
-    // match alone decide the score for exactly the documents kNN was least sure
-    // about.
-    List<UUID> unscored = candidates.stream().filter(id -> !vectorScores.containsKey(id)).toList();
-    vectorScores.putAll(indexService.similarityTo(queryVector, unscored));
-
-    Map<UUID, Double> lexicalScores =
-        hybrid ? lexicalIndex.score(request.getQuery(), candidates) : Map.of();
-    Map<UUID, Integer> vectorRanks = ranksOf(vectorHits);
-    Map<UUID, Integer> lexicalRanks = ranksOf(lexicalHits);
-
     Map<UUID, Document> documentsMap =
         metrics.time(
             SearchMetrics.Stage.HYDRATE,
             () ->
                 documentRepository.findAllById(candidates).stream()
                     .collect(Collectors.toMap(Document::getId, doc -> doc)));
+
+    Map<UUID, Double> vectorScores = scoresOf(vectorHits);
+    // A document only the lexical side found still has a vector, and its true
+    // similarity is what the blend needs. Leaving it at zero would let a term
+    // match alone decide the score for exactly the documents kNN was least sure
+    // about. Hydration runs first because the index reads passages by id, and the
+    // row is what says how many the document has.
+    List<Document> unscored =
+        candidates.stream()
+            .filter(id -> !vectorScores.containsKey(id))
+            .map(documentsMap::get)
+            .filter(Objects::nonNull)
+            .toList();
+    vectorScores.putAll(indexService.similarityTo(queryVector, unscored));
+
+    Map<UUID, Double> lexicalScores =
+        hybrid ? lexicalIndex.score(request.getQuery(), candidates) : Map.of();
+    Map<UUID, Integer> vectorRanks = ranksOf(vectorHits);
+    Map<UUID, Integer> lexicalRanks = ranksOf(lexicalHits);
 
     FusionMethod fusion = FusionMethod.from(searchProperties.getFusion());
     List<SearchResult> results = new ArrayList<>();
