@@ -20,6 +20,7 @@ import io.github.semanticsearch.repository.DocumentRepository;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.*;
+import co.elastic.clients.elasticsearch.core.mget.MultiGetResponseItem;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
 import co.elastic.clients.elasticsearch.indices.CreateIndexResponse;
@@ -39,7 +40,7 @@ public class IndexService {
   private final ElasticsearchClient elasticsearchClient;
   private final EmbeddingService embeddingService;
   private final DocumentRepository documentRepository;
-  private final CorpusStatistics corpusStatistics;
+  private final LexicalIndex lexicalIndex;
 
   @Value("${elasticsearch.index.name:semantic-search}")
   private String indexName;
@@ -59,11 +60,11 @@ public class IndexService {
       ElasticsearchClient elasticsearchClient,
       EmbeddingService embeddingService,
       DocumentRepository documentRepository,
-      CorpusStatistics corpusStatistics) {
+      LexicalIndex lexicalIndex) {
     this.elasticsearchClient = elasticsearchClient;
     this.embeddingService = embeddingService;
     this.documentRepository = documentRepository;
-    this.corpusStatistics = corpusStatistics;
+    this.lexicalIndex = lexicalIndex;
   }
 
   /**
@@ -140,7 +141,7 @@ public class IndexService {
       dropIndex();
       initializeIndex();
     }
-    corpusStatistics.invalidate();
+    lexicalIndex.invalidate();
 
     int reindexed = 0;
     for (Document document : documentRepository.findAll()) {
@@ -238,7 +239,7 @@ public class IndexService {
   public Document updateDocumentIndex(Document document) {
     // An edit leaves the document count unchanged, so the corpus statistics
     // cache cannot detect it by counting rows.
-    corpusStatistics.invalidate();
+    lexicalIndex.invalidate();
     return indexDocument(document);
   }
 
@@ -343,6 +344,61 @@ public class IndexService {
     } catch (IOException e) {
       log.error("Failed to find similar documents", e);
       return Collections.emptyList();
+    }
+  }
+
+  /**
+   * Cosine similarity between a query vector and specific documents, on the same scale {@link
+   * #findSimilarDocuments} reports.
+   *
+   * <p>Needed because hybrid retrieval unions two candidate lists. A document the lexical side
+   * found but the kNN search did not has no similarity attached to it, and leaving it at zero would
+   * let a term match alone decide the final score for exactly the documents the vector stage was
+   * least sure about.
+   *
+   * @return a score per document that is present in the index; ids it does not hold are absent
+   */
+  public Map<UUID, Double> similarityTo(List<Double> queryVector, Collection<UUID> documentIds) {
+    if (documentIds == null || documentIds.isEmpty() || queryVector.isEmpty()) {
+      return Map.of();
+    }
+    if (stubEnabled) {
+      Map<UUID, Double> scores = new HashMap<>();
+      Set<UUID> wanted = Set.copyOf(documentIds);
+      stubVectors.forEach(
+          (vectorId, stored) -> {
+            if (wanted.contains(stored.documentId())) {
+              scores.put(stored.documentId(), cosineSimilarity(queryVector, stored.vector()));
+            }
+          });
+      return scores;
+    }
+
+    // The index uses the document id as its own id, so these are direct gets
+    // rather than a search: no query to score, no relevance to interpret.
+    List<String> ids = documentIds.stream().map(UUID::toString).toList();
+    try {
+      MgetResponse<ObjectNode> response =
+          elasticsearchClient.mget(m -> m.index(indexName).ids(ids), ObjectNode.class);
+      Map<UUID, Double> scores = new HashMap<>();
+      for (MultiGetResponseItem<ObjectNode> item : response.docs()) {
+        if (item.isFailure() || item.result() == null || !item.result().found()) {
+          continue;
+        }
+        ObjectNode source = item.result().source();
+        if (source == null || !source.hasNonNull("document_id") || !source.has("vector")) {
+          continue;
+        }
+        List<Double> stored = new ArrayList<>();
+        source.get("vector").forEach(value -> stored.add(value.asDouble()));
+        scores.put(
+            UUID.fromString(source.get("document_id").asText()),
+            cosineSimilarity(queryVector, stored));
+      }
+      return scores;
+    } catch (IOException e) {
+      log.error("Failed to read vectors for {} documents", ids.size(), e);
+      return Map.of();
     }
   }
 

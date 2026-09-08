@@ -7,8 +7,18 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "search")
 public class SearchProperties {
-  /** When true, blend lexical and vector signals. */
+  /** When true, retrieve lexically as well as by vector and combine the two rankings. */
   private boolean hybridEnabled = true;
+
+  /** How the two rankings are combined: {@code blend} or {@code rrf}. */
+  private String fusion = "blend";
+
+  /**
+   * The constant in reciprocal rank fusion's {@code 1 / (k + rank)}. Larger values flatten the
+   * curve, so the gap between rank 1 and rank 2 matters less and agreement between the two lists
+   * matters more. 60 is the value the method was published with.
+   */
+  private int rrfK = 60;
 
   /** Weight for vector similarity in hybrid scoring (0-1). */
   private double hybridVectorWeight = 0.7;
@@ -47,6 +57,22 @@ public class SearchProperties {
 
   public void setHybridEnabled(boolean hybridEnabled) {
     this.hybridEnabled = hybridEnabled;
+  }
+
+  public String getFusion() {
+    return fusion;
+  }
+
+  public void setFusion(String fusion) {
+    this.fusion = fusion;
+  }
+
+  public int getRrfK() {
+    return rrfK;
+  }
+
+  public void setRrfK(int rrfK) {
+    this.rrfK = rrfK;
   }
 
   public double getHybridVectorWeight() {

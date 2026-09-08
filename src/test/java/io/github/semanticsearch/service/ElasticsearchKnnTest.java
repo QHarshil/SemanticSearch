@@ -10,6 +10,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -95,6 +96,45 @@ class ElasticsearchKnnTest {
       String query, int limit, double minScore, Map<String, String> filters) {
     return indexService.findSimilarDocuments(
         embeddingService.embed(query), limit, minScore, filters);
+  }
+
+  /**
+   * Hybrid retrieval unions two candidate lists, so a document the lexical side found needs its
+   * similarity read back out of the index. Against Elasticsearch that is an mget and a cosine
+   * computed here, a different code path from the kNN search above and one nothing else covers.
+   */
+  @Test
+  void similarityToReadsStoredVectorsBackOnTheSameScaleAsKnn() {
+    Document match = index("Vector Search", "Vector search compares embeddings.", Map.of());
+    Document unrelated = index("Bread Baking", "Sourdough needs a long cold proof.", Map.of());
+
+    List<Double> queryVector = embeddingService.embed("vector search embeddings");
+    Map<UUID, Double> scores =
+        indexService.similarityTo(queryVector, List.of(match.getId(), unrelated.getId()));
+
+    assertEquals(2, scores.size(), "both indexed documents should have been found");
+    assertTrue(
+        scores.get(match.getId()) > scores.get(unrelated.getId()),
+        "matching " + scores.get(match.getId()) + ", unrelated " + scores.get(unrelated.getId()));
+
+    // The same number the kNN search reports for the same document. Without that
+    // a document recovered by the lexical side would be scored on a different
+    // scale from one kNN returned, and the two would not be comparable.
+    double fromKnn = search("vector search embeddings", 5, 0.0).get(0).getValue();
+    assertEquals(fromKnn, scores.get(match.getId()), 1e-6);
+  }
+
+  /** Ids the index does not hold are absent, so a caller can tell that apart from a zero score. */
+  @Test
+  void similarityToOmitsDocumentsTheIndexDoesNotHold() {
+    Document indexed = index("Vector Search", "Vector search compares embeddings.", Map.of());
+    UUID absent = UUID.randomUUID();
+
+    Map<UUID, Double> scores =
+        indexService.similarityTo(
+            embeddingService.embed("vector search"), List.of(indexed.getId(), absent));
+
+    assertEquals(Set.of(indexed.getId()), scores.keySet());
   }
 
   @Test

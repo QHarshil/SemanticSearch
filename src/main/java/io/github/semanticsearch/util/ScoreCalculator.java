@@ -24,6 +24,36 @@ public final class ScoreCalculator {
     return clamp(w * vectorScore + (1 - w) * lexicalScore);
   }
 
+  /**
+   * Reciprocal rank fusion of a document's positions in the two candidate lists.
+   *
+   * <p>Each list a document appears in contributes {@code 1 / (k + rank)}; being absent from one
+   * contributes nothing. Only positions are read, so the two lists need not agree on what a score
+   * means, which is the point of the method.
+   *
+   * <p>Divided by the best score any document could reach, so the result stays in {@code [0,1]}
+   * alongside the blended score and {@code minScore} keeps a single meaning. The divisor counts the
+   * lists the configuration runs, not the lists that happened to return something, or a query no
+   * lexical term matched would score its vector hits as though they had swept both lists.
+   *
+   * @param vectorRank 1-based position in the vector ranking, or null if absent from it
+   * @param lexicalRank 1-based position in the lexical ranking, or null if absent from it
+   */
+  public static double reciprocalRankFusion(
+      Integer vectorRank, Integer lexicalRank, SearchProperties properties) {
+    int k = Math.max(1, properties.getRrfK());
+    double score = 0.0;
+    if (vectorRank != null) {
+      score += 1.0 / (k + vectorRank);
+    }
+    if (lexicalRank != null) {
+      score += 1.0 / (k + lexicalRank);
+    }
+    int lists = properties.isHybridEnabled() ? 2 : 1;
+    double best = lists / (double) (k + 1);
+    return clamp(score / best);
+  }
+
   public static double applyMetadataBoosts(
       Document document, double score, Map<String, Double> metadataBoosts) {
     if (metadataBoosts == null || metadataBoosts.isEmpty()) {

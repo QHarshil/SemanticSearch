@@ -1,9 +1,10 @@
 # Semantic Search Java
 
-A hybrid document search service built with Java and Spring Boot. Documents are
-retrieved by vector similarity, then re-ranked with BM25 lexical scoring,
-metadata boosts and recency decay. A built-in eval harness reports MRR, NDCG@k
-and Recall@k so ranking changes can be compared rather than guessed at.
+A hybrid document search service built with Java and Spring Boot. Every query is
+retrieved twice, once by vector similarity and once by BM25 over an inverted
+index, and the two rankings are combined and re-scored with metadata boosts and
+recency. A built-in eval harness reports MRR, NDCG@k and Recall@k, so a ranking
+change is a measurement instead of an opinion.
 
 A React UI is compiled into the jar and served at `/`.
 
@@ -26,10 +27,10 @@ flowchart LR
     S -->|kNN, metadata pre-filter<br/>5x the requested limit| IX[IndexService]
     IX --> ES[(Elasticsearch<br/>dense_vector, HNSW)]
     IX --> MM[(In-memory index<br/>default)]
+    S -->|BM25 over the whole corpus<br/>5x the requested limit| LX[LexicalIndex<br/>inverted index]
     S -->|hydrate documents| PG[(PostgreSQL)]
-    S -->|BM25 over<br/>corpus-wide statistics| CS[CorpusStatistics]
-    S --> RK[blend, metadata boosts,<br/>recency decay, re-sort, truncate]
-    RK --> C
+    S --> FU[fuse the two rankings,<br/>metadata boosts, recency,<br/>re-sort, truncate]
+    FU --> C
 ```
 
 Writes go the other way, through `DocumentService`: hash, dedupe, persist, embed,
@@ -69,7 +70,7 @@ A real response from that command, with the score shortened:
     "title": "Latency Budgets",
     "content": "Latency budgets keep search responses under a target p95. Every stage of the pipeline, from embedding the query to fetching documents, spends part of that budget.",
     "metadata": { "topic": "performance" },
-    "score": 0.3483,
+    "score": 0.3484,
     "highlights": ["Latency budgets keep search responses under a target p95"]
   }
 ]
@@ -81,21 +82,54 @@ default with a seven-day half-life.
 
 ## How ranking works
 
-Retrieval is vector-first, then re-ranked:
+Two retrievers run over the whole corpus, and their rankings are combined:
 
 1. The query is embedded and the index returns nearest neighbours by cosine
    similarity, over-fetching 5× the requested number of results (capped at 200).
    Against Elasticsearch this is an approximate kNN search over the HNSW graph
    built for the `vector` field, with metadata filters applied inside it.
-2. Candidates are re-scored. The vector score is blended with a BM25 lexical
-   score computed from corpus-wide term statistics, metadata boosts are added,
-   and the result is scaled by a recency multiplier.
-3. Results scoring below `minScore` are dropped, the list is sorted by the final
+2. In parallel, `LexicalIndex` ranks the corpus by BM25 over an in-memory
+   inverted index, over-fetching the same number.
+3. The two candidate lists are unioned. A document only one retriever found still
+   gets a score from the other: its vector is read from the index, and BM25 is
+   computed for it directly.
+4. The two signals are fused, metadata boosts are added, and the result is scaled
+   by a recency multiplier.
+5. Results scoring below `minScore` are dropped, the list is sorted by the final
    score, and truncated to `limit`.
 
-Because retrieval is vector-first, lexical scoring refines the ordering of
-candidates rather than widening recall. The over-fetch is what gives it room to
-change the outcome.
+Retrieving lexically is what makes the words a way in. A document whose terms
+match the query exactly, but whose embedding sits outside the vector
+neighbourhood, is found by step 2 and could not be recovered at any weight when
+BM25 only re-scored what kNN had already returned.
+
+### Fusion
+
+`search.fusion` picks how step 4 combines the two.
+
+- **`blend` (default).** A weighted sum, `search.hybrid-vector-weight` on the
+  vector score and the remainder on BM25. Keeps score magnitudes, so a strong
+  match stays visibly stronger and `minScore` keeps one meaning.
+- **`rrf`.** Reciprocal rank fusion: each list contributes `1 / (k + rank)` with
+  `search.rrf-k` defaulting to 60, normalised so the best possible score is 1.0.
+  Reads positions only, so the two lists need not agree on what a score means.
+
+They fail in opposite directions, which is why both are here. On the gold set the
+blend wins:
+
+| | MRR | NDCG@5 | Recall@5 |
+| --- | --- | --- | --- |
+| `onnx` + `blend` | **0.938** | **0.954** | 1.000 |
+| `onnx` + `rrf` | 0.844 | 0.883 | 1.000 |
+| `hashing` + `blend` | 0.615 | 0.679 | 0.875 |
+| `hashing` + `rrf` | **0.635** | **0.695** | 0.875 |
+
+On a query that is one rare identifier, RRF wins and the blend cannot. Give the
+blend two dozen close vector matches and one document that holds the term and
+nothing else, and the lexical-only document caps at the lexical weight, 0.3 at
+the defaults, while every decoy keeps around 0.75. No BM25 score clears that gap.
+RRF compares positions, so rank 1 on the lexical list stands beside rank 1 on the
+vector list. `HybridRetrievalTest` pins both outcomes.
 
 `minScore` is a floor on the score you get back. It is applied to the blended
 score after boosts and decay, not to the raw vector score, which is always lower.
@@ -141,7 +175,7 @@ Three providers, selected by `EMBEDDING_PROVIDER`:
   L2-normalised, which is how the model was trained to produce a sentence vector.
   It scores "car" against "automobile" at 0.86 and against "banana" at 0.39.
   Still no API key, and still deterministic, at the cost of a 90 MB model file
-  and about 1.3 ms per uncached query.
+  and about 1.4 ms per uncached query.
 - **`openai`.** Supply `EMBEDDING_API_KEY` and set `EMBEDDING_DIMENSIONS` to
   match the model (1536 for `text-embedding-3-small` at full width).
 
@@ -182,13 +216,13 @@ with `curl -s localhost:8080/api/v1/eval/run?k=5 > docs/eval-report.json`.
 | | MRR | NDCG@5 | Recall@5 | Gold document ranked first |
 | --- | --- | --- | --- | --- |
 | `hashing`, 256 dimensions | 0.615 | 0.679 | 0.875 | 4 of 8 |
-| `onnx`, 384 dimensions | **0.854** | **0.891** | **1.000** | **6 of 8** |
+| `onnx`, 384 dimensions | **0.938** | **0.954** | **1.000** | **7 of 8** |
 
 Per query, as reciprocal rank:
 
 | Gold query | `hashing` | `onnx` |
 | --- | --- | --- |
-| how does embedding similarity work | 0.25 | 0.33 |
+| how does embedding similarity work | 0.25 | 1.00 |
 | what affects result ordering | 0.00 | 0.50 |
 | keeping p95 response time low | 1.00 | 1.00 |
 | boosting newer documents | 0.33 | 1.00 |
@@ -199,10 +233,9 @@ Per query, as reciprocal rank:
 
 `what affects result ordering` is the query that separates the two. It shares no
 word with *Ranking Signals* beyond stopwords, so the lexical embedder never
-retrieves it at all; the transformer puts it second. The two remaining
-imperfect rows under `onnx` are both cases where a topically adjacent document
-outranks the gold one, which one relevant document per query cannot distinguish
-from a genuine miss.
+retrieves it at all; the transformer puts it second, which is the one row under
+`onnx` that is not a first place. One relevant document per query cannot tell
+that apart from a genuine miss.
 
 The build fails if either provider regresses. Thresholds live in
 `EvalServiceIntegrationTest` and `OnnxEvalTest`, set below the measured values so
@@ -223,10 +256,10 @@ general.
 | `ranking` ≈ `ranked` | 0.26 | 0.82 | yes |
 | `car` ≈ `automobile` | **-0.12** | 0.86 | yes |
 | `car` ≈ `banana` | -0.21 | 0.39 | |
-| Added latency per uncached query | none | 1.3 ms | a network round trip |
+| Added latency per uncached query | none | 1.4 ms | a network round trip |
 | Runs offline | yes | yes | no |
 | Determinism | exact | exact | model-version dependent |
-| MRR on the gold set | 0.615 | 0.854 | not measured here |
+| MRR on the gold set | 0.615 | 0.938 | not measured here |
 
 Cosine similarities are measured at each provider's own width, 256 for `hashing`
 and 384 for `onnx`. Single words are the hardest case for feature hashing,
@@ -243,14 +276,14 @@ from `curl` on the same machine:
 
 | | median | p95 |
 | --- | --- | --- |
-| `hashing`, warm cache, 30 requests over 6 repeated queries | 1.9 ms | 2.3 ms |
-| `onnx`, warm cache, 30 requests over 6 repeated queries | 2.0 ms | 2.4 ms |
-| `hashing`, 50 queries each seen once | 3.7 ms | 5.0 ms |
-| `onnx`, 50 queries each seen once | 5.0 ms | 6.1 ms |
+| `hashing`, warm cache, 30 requests over 6 repeated queries | 1.9 ms | 2.4 ms |
+| `onnx`, warm cache, 30 requests over 6 repeated queries | 2.1 ms | 2.4 ms |
+| `hashing`, 50 queries each seen once | 3.8 ms | 5.4 ms |
+| `onnx`, 50 queries each seen once | 5.2 ms | 6.6 ms |
 
 The warm rows barely move between providers because a cache hit returns before
-anything is embedded. The difference between the two cold rows, about 1.3 ms, is
-what running the transformer actually costs.
+anything is embedded. The gap between the two cold rows, about 1.4 ms, is what
+running the transformer actually costs.
 
 These describe an eight-document in-process index, so treat them as a floor for
 pipeline overhead and not as a throughput result. `perf/k6-smoke.js` is a
@@ -367,7 +400,7 @@ Notable pieces: `HashingEmbedder` and `OnnxEmbedder` (the two in-process
 embedding models, both behind `TextEmbedder`), `ModelCache` (fetches model
 weights and checks them against a digest), `SearchService.search` (the
 retrieve/re-rank pipeline), `DocumentService` (the write path, and the only place
-that invalidates caches), `CorpusStatistics` (corpus-wide BM25 term statistics),
+that invalidates caches), `LexicalIndex` (the inverted index and BM25),
 `EvalService` (the gold set and metrics).
 
 ### Known limitations
@@ -378,13 +411,15 @@ that invalidates caches), `CorpusStatistics` (corpus-wide BM25 term statistics),
   several unrelated sections averages into a vector that represents none of them,
   and the 256-token window drops everything past roughly the first two hundred
   words. Passage-level chunking is the fix.
-- Lexical scoring re-ranks the vector candidate pool; it does not add recall. A
-  document that BM25 would rank first but that the vector stage never retrieved
-  cannot be recovered. Fixing that means retrieving lexically and by vector
-  separately and fusing the two rankings.
-- BM25 statistics are held in memory and rebuilt when the corpus changes size.
-  For a large corpus, push lexical scoring into Elasticsearch, which maintains
-  those statistics as part of the inverted index.
+- The inverted index is held in memory and rebuilt from the repository whenever
+  the corpus changes size, so lexical retrieval costs a full rescan per write and
+  the postings sit on the heap. For a large corpus, push lexical retrieval into
+  Elasticsearch, which maintains an inverted index natively and can combine the
+  two rankings itself.
+- Metadata filters reach the vector retriever, which applies them inside the kNN
+  search, but not the lexical one, where they are applied to its output. A
+  heavily filtered query can therefore draw fewer lexical candidates than it
+  asked for.
 - PostgreSQL and the search index are written in one database transaction but
   share no transaction of their own. An index write that succeeds before a failed
   commit leaves a vector with no row; index writes are upserts keyed on the

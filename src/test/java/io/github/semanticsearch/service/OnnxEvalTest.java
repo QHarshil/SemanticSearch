@@ -23,17 +23,17 @@ import io.github.semanticsearch.repository.DocumentRepository;
 @ActiveProfiles("test")
 class OnnxEvalTest {
 
-  // Measured with all-MiniLM-L6-v2: MRR 0.854, NDCG@5 0.891, Recall@5 1.000,
-  // against 0.635 / 0.695 / 0.875 for the hashing embedder on the same corpus and
-  // the same eight queries. Six of the eight rank their gold document first,
-  // against four.
+  // Measured with all-MiniLM-L6-v2: MRR 0.938, NDCG@5 0.954, Recall@5 1.000, with
+  // seven of the eight queries ranking their gold document first. The hashing
+  // embedder reaches 0.646 / 0.704 / 0.875 and four of eight on the same corpus
+  // and the same queries.
   //
   // Thresholds sit below the measured values so ordinary tuning does not break the
   // build, and above everything the lexical embedder reaches, so a configuration
   // change that quietly falls back to it fails here.
-  private static final double MIN_MRR = 0.80;
+  private static final double MIN_MRR = 0.85;
 
-  private static final double MIN_NDCG = 0.85;
+  private static final double MIN_NDCG = 0.90;
   private static final double MIN_RECALL = 0.95;
 
   @Autowired private SeedService seedService;
@@ -53,7 +53,6 @@ class OnnxEvalTest {
   @Test
   void theSemanticModelBeatsTheLexicalOneOnTheGoldSet() {
     EvalService.EvalResult result = evalService.runCuratedEval(5);
-
     assertEquals(8, result.totalQueries());
     assertTrue(result.mrr() >= MIN_MRR, "MRR " + result.mrr());
     assertTrue(result.ndcg() >= MIN_NDCG, "NDCG@5 " + result.ndcg());
@@ -67,8 +66,9 @@ class OnnxEvalTest {
     // 0.0 on every metric. Asserted on its own rather than left to the averages
     // above, because it is the one query that only meaning can answer.
     //
-    // Measured: rank 2, so reciprocal rank 0.5. Second place, not first, is what
-    // this model does here.
+    // Measured: rank 2, reciprocal rank 0.5. It is the one query of the eight
+    // that does not rank its gold document first, and second place is what this
+    // model reaches on it.
     EvalService.QueryEval ordering = queryEval("what affects result ordering");
 
     assertTrue(ordering.rr() >= 0.5, "reciprocal rank " + ordering.rr());

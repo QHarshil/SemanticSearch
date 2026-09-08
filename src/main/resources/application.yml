@@ -147,7 +147,11 @@ springdoc:
     docExpansion: none
 
 search:
+  # Retrieve by vector and lexically, then combine the two rankings.
   hybrid-enabled: true
+  # blend: weighted sum of the two scores. rrf: reciprocal rank fusion.
+  fusion: ${SEARCH_FUSION:blend}
+  rrf-k: 60
   hybrid-vector-weight: 0.7
   hybrid-vector-weight-profile-b: 0.5
   scoring-profile: A

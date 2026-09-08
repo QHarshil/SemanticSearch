@@ -10,9 +10,9 @@ import io.github.semanticsearch.model.Document;
 /**
  * Shared tokenizer for lexical scoring.
  *
- * <p>Document frequency and term frequency must come from identical tokenization or BM25 silently
- * mismatches terms, so {@link CorpusStatistics} and {@link SearchService} both go through here
- * rather than each splitting strings their own way.
+ * <p>Document frequency and term frequency must come from identical tokenization or BM25 matches
+ * the wrong terms, so {@link LexicalIndex} and {@link HashingEmbedder} both go through here rather
+ * than each splitting strings their own way.
  */
 final class Tokenizer {
 

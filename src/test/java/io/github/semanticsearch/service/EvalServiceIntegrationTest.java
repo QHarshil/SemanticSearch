@@ -33,8 +33,8 @@ import io.github.semanticsearch.repository.DocumentRepository;
 @ActiveProfiles("test")
 class EvalServiceIntegrationTest {
 
-  // Measured with the local lexical embedder: MRR 0.635, NDCG@5 0.695,
-  // Recall@5 0.875, with 7 of the 8 gold documents retrieved. The gold queries
+  // Measured with the lexical embedder: MRR 0.646, NDCG@5 0.704, Recall@5 0.875,
+  // with 7 of the 8 gold documents retrieved. The gold queries
   // are natural-language paraphrases rather than restatements of the document
   // text, which is deliberately hard for a lexical model - it can match "term
   // frequency scoring" to the BM25 document, but not "what affects result
@@ -74,7 +74,6 @@ class EvalServiceIntegrationTest {
     // call, rather than a gold set assembled here - a local fixture would leave
     // the production path uncovered.
     EvalService.EvalResult result = evalService.runCuratedEval(5);
-
     assertEquals(8, result.totalQueries());
     assertTrue(
         result.mrr() >= MIN_MRR,

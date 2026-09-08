@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
+import io.github.semanticsearch.config.FusionMethod;
 import io.github.semanticsearch.config.SearchProperties;
 import io.github.semanticsearch.model.Document;
 import io.github.semanticsearch.model.SearchRequest;
@@ -34,19 +35,19 @@ public class SearchService {
   private final IndexService indexService;
   private final DocumentRepository documentRepository;
   private final SearchProperties searchProperties;
-  private final CorpusStatistics corpusStatistics;
+  private final LexicalIndex lexicalIndex;
 
   public SearchService(
       EmbeddingService embeddingService,
       IndexService indexService,
       DocumentRepository documentRepository,
       SearchProperties searchProperties,
-      CorpusStatistics corpusStatistics) {
+      LexicalIndex lexicalIndex) {
     this.embeddingService = embeddingService;
     this.indexService = indexService;
     this.documentRepository = documentRepository;
     this.searchProperties = searchProperties;
-    this.corpusStatistics = corpusStatistics;
+    this.lexicalIndex = lexicalIndex;
   }
 
   /**
@@ -62,9 +63,8 @@ public class SearchService {
   // fresh entry: the cache would never hit and would grow without bound.
   @Cacheable(value = "searchResults", key = "#request", unless = "#result.isEmpty()")
   public List<SearchResult> search(SearchRequest request) {
-    log.debug("Performing semantic search for query: {}", request.getQuery());
+    log.debug("Performing search for query: {}", request.getQuery());
 
-    // Generate embedding for query
     List<Double> queryVector = embeddingService.embed(request.getQuery());
     if (queryVector.isEmpty()) {
       log.warn("Failed to generate embedding for query: {}", request.getQuery());
@@ -73,100 +73,141 @@ public class SearchService {
 
     int limit = Math.max(1, request.getLimit());
     double minScore = Math.max(0.0, request.getMinScore());
+    boolean hybrid = searchProperties.isHybridEnabled();
 
-    // Over-fetch from the vector stage, then re-rank and truncate to limit.
-    // Retrieving exactly `limit` candidates would leave the lexical stage
-    // powerless: a document matching the query strongly on words but sitting just
-    // outside the vector top-N could never be recovered, however high BM25 scored
-    // it. The wider pool is what lets hybrid scoring change the outcome rather
-    // than relabel it.
+    // Over-fetch from each retriever, then fuse and truncate. Retrieving exactly
+    // `limit` from either side would leave fusion nothing to do: whichever
+    // document each retriever ranked last would still be in the answer.
     int candidateLimit = Math.min(limit * CANDIDATE_MULTIPLIER, MAX_CANDIDATES);
+
     // Retrieval is deliberately unthresholded. minScore is a floor on the score a
-    // caller receives, and the score a caller receives is the blended one computed
+    // caller receives, and the score a caller receives is the fused one computed
     // below - passing minScore to the vector stage would apply it to a different,
     // always-lower number and drop documents whose final score clears the bar.
     //
-    // Filters do go into retrieval, so the candidate pool is filled with documents
-    // that can actually be returned. The post-filter below still runs, because the
-    // in-memory index does not pre-filter and has to enforce the same contract.
-    List<Map.Entry<UUID, Double>> similarDocuments =
+    // Filters do go into the vector retrieval, so the candidate pool is filled
+    // with documents that can actually be returned. The post-filter below still
+    // runs, because neither the in-memory index nor the lexical index pre-filters
+    // and both have to honour the same contract.
+    List<Map.Entry<UUID, Double>> vectorHits =
         indexService.findSimilarDocuments(queryVector, candidateLimit, 0.0, request.getFilters());
+    // The two retrievers run over the whole corpus independently. Scoring only
+    // what the vector stage returned is what made lexical matching a tiebreaker:
+    // a document whose terms match the query exactly, but whose embedding sits
+    // outside the vector neighbourhood, could not be recovered at any weight.
+    List<Map.Entry<UUID, Double>> lexicalHits =
+        hybrid ? lexicalIndex.search(request.getQuery(), candidateLimit) : List.of();
 
-    if (similarDocuments.isEmpty()) {
-      log.debug("No similar documents found for query: {}", request.getQuery());
+    Set<UUID> candidates = new LinkedHashSet<>();
+    vectorHits.forEach(hit -> candidates.add(hit.getKey()));
+    lexicalHits.forEach(hit -> candidates.add(hit.getKey()));
+    if (candidates.isEmpty()) {
+      log.debug("No candidates found for query: {}", request.getQuery());
       return Collections.emptyList();
     }
 
-    // Retrieve document details
-    List<UUID> documentIds =
-        similarDocuments.stream().map(Map.Entry::getKey).collect(Collectors.toList());
+    Map<UUID, Double> vectorScores = scoresOf(vectorHits);
+    // A document only the lexical side found still has a vector, and its true
+    // similarity is what the blend needs. Leaving it at zero would let a term
+    // match alone decide the score for exactly the documents kNN was least sure
+    // about.
+    List<UUID> unscored = candidates.stream().filter(id -> !vectorScores.containsKey(id)).toList();
+    vectorScores.putAll(indexService.similarityTo(queryVector, unscored));
+
+    Map<UUID, Double> lexicalScores =
+        hybrid ? lexicalIndex.score(request.getQuery(), candidates) : Map.of();
+    Map<UUID, Integer> vectorRanks = ranksOf(vectorHits);
+    Map<UUID, Integer> lexicalRanks = ranksOf(lexicalHits);
 
     Map<UUID, Document> documentsMap =
-        documentRepository.findAllById(documentIds).stream()
+        documentRepository.findAllById(candidates).stream()
             .collect(Collectors.toMap(Document::getId, doc -> doc));
 
-    Map<UUID, Double> lexicalScores = Collections.emptyMap();
-    if (searchProperties.isHybridEnabled()) {
-      lexicalScores = computeLexicalScores(request.getQuery(), documentsMap);
-    }
-
-    // Build search results with optional hybrid/metadata boosts
+    FusionMethod fusion = FusionMethod.from(searchProperties.getFusion());
     List<SearchResult> results = new ArrayList<>();
-    for (Map.Entry<UUID, Double> entry : similarDocuments) {
-      UUID documentId = entry.getKey();
+    for (UUID documentId : candidates) {
       Document document = documentsMap.get(documentId);
-
-      if (document != null) {
-        if (!matchesFilters(document, request.getFilters())) {
-          continue;
-        }
-
-        double vectorScore = ScoreCalculator.clamp(entry.getValue());
-        double lexicalScore = lexicalScores.getOrDefault(documentId, vectorScore);
-        double blended = ScoreCalculator.blendScores(vectorScore, lexicalScore, searchProperties);
-        double boosted =
-            ScoreCalculator.applyMetadataBoosts(
-                document, blended, searchProperties.getMetadataBoosts());
-        double withRecency = ScoreCalculator.applyRecency(document, boosted, searchProperties);
-
-        // Applied here, against the score that will be reported, so a result can
-        // never come back scoring below the threshold the caller asked for.
-        if (withRecency < minScore) {
-          continue;
-        }
-
-        SearchResult result =
-            SearchResult.builder()
-                .id(document.getId())
-                .title(document.getTitle())
-                .content(request.isIncludeContent() ? document.getContent() : null)
-                .metadata(projectMetadata(document, request.getFields()))
-                .score(withRecency)
-                .highlights(
-                    request.isIncludeHighlights()
-                        ? generateHighlights(document.getContent(), request.getQuery())
-                        : null)
-                .build();
-
-        results.add(result);
+      if (document == null || !matchesFilters(document, request.getFilters())) {
+        continue;
       }
+
+      double fused =
+          switch (fusion) {
+            case BLEND -> blended(documentId, vectorScores, lexicalScores);
+            case RRF ->
+                ScoreCalculator.reciprocalRankFusion(
+                    vectorRanks.get(documentId), lexicalRanks.get(documentId), searchProperties);
+          };
+      double boosted =
+          ScoreCalculator.applyMetadataBoosts(
+              document, fused, searchProperties.getMetadataBoosts());
+      double withRecency = ScoreCalculator.applyRecency(document, boosted, searchProperties);
+
+      // Applied here, against the score that will be reported, so a result can
+      // never come back scoring below the threshold the caller asked for.
+      if (withRecency < minScore) {
+        continue;
+      }
+
+      results.add(
+          SearchResult.builder()
+              .id(document.getId())
+              .title(document.getTitle())
+              .content(request.isIncludeContent() ? document.getContent() : null)
+              .metadata(projectMetadata(document, request.getFields()))
+              .score(withRecency)
+              .highlights(
+                  request.isIncludeHighlights()
+                      ? generateHighlights(document.getContent(), request.getQuery())
+                      : null)
+              .build());
     }
 
-    // Re-sort by the final score. Results arrive in vector-score order, and the
-    // blending, metadata boosts and recency decay above all change that score.
-    // Skipping this sort would return an order reflecting vector similarity alone,
-    // making every one of those relevance features inert - including in the eval
-    // metrics, which depend solely on rank position.
+    // Candidates arrive in vector-score order followed by whatever the lexical
+    // side added, and fusion, boosts and recency all change the score. Skipping
+    // this sort would return an order reflecting vector similarity alone, making
+    // every one of those signals inert - including in the eval metrics, which
+    // depend solely on rank position.
     results.sort(Comparator.comparingDouble(SearchResult::getScore).reversed());
 
-    // Truncate after re-ranking, not before: the point of the wider candidate
-    // pool is that the final top-N is chosen on the blended score.
+    // Truncated after fusion, not before: the point of the wider candidate pool
+    // is that the final top-N is chosen on the fused score.
     if (results.size() > limit) {
       results = new ArrayList<>(results.subList(0, limit));
     }
 
     log.debug("Found {} results for query: {}", results.size(), request.getQuery());
     return results;
+  }
+
+  /**
+   * The weighted blend of the two signals.
+   *
+   * <p>A document with no lexical score holds none of the query's terms. It falls back to its
+   * vector score rather than to zero, because under a semantic embedder matching on meaning without
+   * sharing a word is the expected case, and scoring it as a lexical miss would penalise exactly
+   * the retrieval the vector stage exists to do.
+   */
+  private double blended(
+      UUID documentId, Map<UUID, Double> vectorScores, Map<UUID, Double> lexicalScores) {
+    double vectorScore = ScoreCalculator.clamp(vectorScores.getOrDefault(documentId, 0.0));
+    double lexicalScore = lexicalScores.getOrDefault(documentId, vectorScore);
+    return ScoreCalculator.blendScores(vectorScore, lexicalScore, searchProperties);
+  }
+
+  private static Map<UUID, Double> scoresOf(List<Map.Entry<UUID, Double>> hits) {
+    Map<UUID, Double> scores = new HashMap<>();
+    hits.forEach(hit -> scores.putIfAbsent(hit.getKey(), hit.getValue()));
+    return scores;
+  }
+
+  /** Positions in a ranked list, 1-based, which is the form reciprocal rank fusion expects. */
+  private static Map<UUID, Integer> ranksOf(List<Map.Entry<UUID, Double>> hits) {
+    Map<UUID, Integer> ranks = new HashMap<>();
+    for (int i = 0; i < hits.size(); i++) {
+      ranks.putIfAbsent(hits.get(i).getKey(), i + 1);
+    }
+    return ranks;
   }
 
   /**
@@ -314,54 +355,5 @@ public class SearchService {
       }
     }
     return projected;
-  }
-
-  /**
-   * BM25 over the candidate documents, using corpus-wide term statistics.
-   *
-   * <p>Note this re-ranks rather than retrieves: only documents the vector search already returned
-   * can be scored, so a document that matches the query lexically but fell below the vector
-   * minScore is unreachable. That is a property of the pipeline, not of this method.
-   */
-  private Map<UUID, Double> computeLexicalScores(String query, Map<UUID, Document> documents) {
-    Map<String, Integer> queryFreq = termFreq(Tokenizer.tokenize(query));
-    CorpusStatistics.Snapshot corpus = corpusStatistics.current();
-    double k1 = searchProperties.getBm25K1();
-    double b = searchProperties.getBm25B();
-
-    Map<UUID, Double> scores = new HashMap<>();
-    for (Map.Entry<UUID, Document> entry : documents.entrySet()) {
-      List<String> docTerms = Tokenizer.tokenize(entry.getValue());
-      Map<String, Integer> tf = termFreq(docTerms);
-      double docLen = docTerms.size();
-      double bm25 = 0.0;
-
-      for (String term : queryFreq.keySet()) {
-        double freq = tf.getOrDefault(term, 0);
-        if (freq == 0) {
-          continue;
-        }
-        int df = corpus.documentFrequencyOf(term);
-        if (df == 0) {
-          // The corpus snapshot predates this document; treat the term as rare
-          // rather than skipping a match the document genuinely contains.
-          df = 1;
-        }
-        double idf =
-            Math.log((corpus.documentCount() - df + 0.5) / (df + 0.5) + 1.0); // smoothed idf
-        double denom = freq + k1 * (1 - b + b * (docLen / corpus.averageLength()));
-        bm25 += idf * ((freq * (k1 + 1)) / (denom == 0 ? 1 : denom));
-      }
-      scores.put(entry.getKey(), bm25 == 0.0 ? 0.0 : ScoreCalculator.clamp(bm25 / (bm25 + 1)));
-    }
-    return scores;
-  }
-
-  private Map<String, Integer> termFreq(List<String> terms) {
-    Map<String, Integer> tf = new HashMap<>();
-    for (String t : terms) {
-      tf.merge(t, 1, Integer::sum);
-    }
-    return tf;
   }
 }
