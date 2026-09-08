@@ -93,15 +93,30 @@ jobs:
       # and not Alpine: on musl they fail to load and only this catches it.
       - name: Run the image and check it answers
         run: |
-          docker run -d --name smoke -p 8080:8080             -e SPRING_PROFILES_ACTIVE=demo             -e EMBEDDING_PROVIDER=onnx             -e EMBEDDING_ONNX_MODEL_DIR=/var/cache/semantic-search/models             -v ~/.cache/semantic-search-java/models/all-MiniLM-L6-v2:/var/cache/semantic-search/models:ro             semantic-search-java:${{ github.sha }}
+          # The image sets ELASTICSEARCH_STUB_ENABLED=false, because it is built
+          # for the compose stack. An environment variable outranks profile YAML,
+          # so the demo profile cannot turn the stub back on by itself and this
+          # has to say so.
+          docker run -d --name smoke -p 8080:8080 \
+            -e SPRING_PROFILES_ACTIVE=demo \
+            -e ELASTICSEARCH_STUB_ENABLED=true \
+            -e EMBEDDING_PROVIDER=onnx \
+            -e EMBEDDING_ONNX_MODEL_DIR=/var/cache/semantic-search/models \
+            -v ~/.cache/semantic-search-java/models/all-MiniLM-L6-v2:/var/cache/semantic-search/models:ro \
+            semantic-search-java:${{ github.sha }}
           for i in $(seq 1 60); do
             curl -sf http://localhost:8080/actuator/health >/dev/null && break
             sleep 2
           done
-          curl -sf http://localhost:8080/actuator/health
-          curl -sf --get --data-urlencode 'query=keeping p95 response time low'             http://localhost:8080/api/v1/search | tee /dev/stderr | grep -q '"title"'
+          if ! curl -sf http://localhost:8080/actuator/health; then
+            docker logs smoke
+            exit 1
+          fi
+          curl -sf --get --data-urlencode 'query=keeping p95 response time low' \
+            http://localhost:8080/api/v1/search | tee /dev/stderr | grep -q '"title"'
           docker logs smoke | grep -q 'Loaded onnx/all-MiniLM-L6-v2'
           docker rm -f smoke
+
 
       - name: Save test results
         if: always()

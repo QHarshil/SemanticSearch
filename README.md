@@ -566,6 +566,17 @@ docker compose up --build
 Starts the service against PostgreSQL, Elasticsearch and Redis, with the
 in-process index switched off.
 
+The image bakes in the settings that stack needs, and an environment variable
+outranks profile YAML, so `--spring.profiles.active=demo` alone is not enough to
+run the container on its own. Say so explicitly:
+
+```bash
+docker run -p 8080:8080 \
+  -e SPRING_PROFILES_ACTIVE=demo \
+  -e ELASTICSEARCH_STUB_ENABLED=true \
+  ghcr.io/qharshil/semantic-search-java:latest
+```
+
 ## Development
 
 ```bash
