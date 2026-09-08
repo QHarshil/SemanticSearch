@@ -168,6 +168,17 @@ public class IndexService {
   }
 
   /**
+   * Whether the in-process index is holding nothing.
+   *
+   * <p>Only meaningful for that index, and only at startup, where an empty map beside a populated
+   * repository is what a restart leaves behind. Elasticsearch keeps its own vectors and always
+   * answers false.
+   */
+  public boolean isInProcessIndexEmpty() {
+    return stubEnabled && stubVectors.isEmpty();
+  }
+
+  /**
    * Make recent writes visible to search immediately.
    *
    * <p>Elasticsearch buffers new documents until its next refresh, a second by default, so a

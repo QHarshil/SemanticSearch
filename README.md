@@ -603,6 +603,10 @@ Notable pieces:
 - The in-process vector index, which is the default, scores every stored passage
   per query. Query cost grows linearly with the corpus. Elasticsearch is the
   approximate path, and nothing here measures its recall against exact search.
+- That index lives in the heap, so a restart empties it while the rows survive.
+  Startup re-embeds the stored corpus when it finds the index empty, which costs
+  one embedding per passage at boot and is why the default configuration is worth
+  using only up to the corpus size you are willing to wait for.
 - The inverted index is held in memory and rebuilt from the repository after
   every write, so lexical retrieval costs a full rescan per write and the
   postings sit on the heap. For a large corpus, push lexical retrieval into

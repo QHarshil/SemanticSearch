@@ -25,9 +25,6 @@ public class IndexInitializationConfig {
   @Value("${elasticsearch.index.auto-init:true}")
   private boolean autoInit;
 
-  @Value("${elasticsearch.stub-enabled:false}")
-  private boolean stubEnabled;
-
   public IndexInitializationConfig(
       IndexService indexService, DocumentRepository documentRepository) {
     this.indexService = indexService;
@@ -61,7 +58,7 @@ public class IndexInitializationConfig {
    * does not run for it.
    */
   private void rebuildInMemoryIndex() {
-    if (!stubEnabled) {
+    if (!indexService.isInProcessIndexEmpty()) {
       return;
     }
     long stored = documentRepository.count();

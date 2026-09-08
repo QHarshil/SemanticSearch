@@ -2,8 +2,11 @@ package io.github.semanticsearch.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -33,6 +36,7 @@ class IndexInitializationTest {
   @Autowired private IndexService indexService;
   @Autowired private EmbeddingService embeddingService;
   @Autowired private DocumentRepository documentRepository;
+  @Autowired private org.springframework.cache.CacheManager cacheManager;
 
   @BeforeEach
   void resetCorpus() {
@@ -47,6 +51,7 @@ class IndexInitializationTest {
 
     // What a restart leaves behind: the row still there and marked indexed, the
     // vectors gone with the heap that held them.
+    cacheManager.getCache("embeddings").put("startup-probe", List.of(0.5));
     dropTheVectorsWithoutTouchingTheRows();
     assertFalse(retrievable(stored), "the fixture did not actually empty the index");
     assertTrue(documentRepository.findById(stored.getId()).orElseThrow().isIndexed());
@@ -55,6 +60,9 @@ class IndexInitializationTest {
     initialization.initializeIndexOnStartup();
 
     assertTrue(retrievable(stored), "the index was not rebuilt at startup");
+    assertNull(
+        cacheManager.getCache("embeddings").get("startup-probe"),
+        "a rebuild has to drop the embedding cache along with the index");
   }
 
   @Test
@@ -62,6 +70,24 @@ class IndexInitializationTest {
     initialization.initializeIndexOnStartup();
 
     assertEquals(0, documentRepository.count());
+  }
+
+  @Test
+  void startupLeavesAPopulatedIndexAlone() {
+    // The demo profile seeds before this listener runs, so a rebuild here would
+    // re-embed a corpus that is already in the index.
+    Document stored = index("Latency Budgets", "Latency budgets keep responses under a p95.");
+    // rebuildIndex is @CacheEvict over both caches, so a surviving entry is what
+    // says it did not run. Saving the rows is not a signal: Hibernate skips the
+    // update when nothing on the entity changed.
+    cacheManager.getCache("embeddings").put("startup-probe", List.of(0.5));
+
+    initialization.initializeIndexOnStartup();
+
+    assertTrue(retrievable(stored));
+    assertNotNull(
+        cacheManager.getCache("embeddings").get("startup-probe"),
+        "the corpus was re-embedded when the index already held it");
   }
 
   /** Empties the vector index and leaves every row as it is, which is what a restart does. */
