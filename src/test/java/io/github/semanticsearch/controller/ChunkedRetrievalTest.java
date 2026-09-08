@@ -13,6 +13,7 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -36,6 +37,9 @@ import io.github.semanticsearch.service.IndexService;
  * its opening, and the sentence at the end is unreachable by meaning however well it answers the
  * query. Each test states the query that only the last passage can answer.
  */
+@EnabledIf(
+    value = "io.github.semanticsearch.support.OnnxRuntimeAvailable#loads",
+    disabledReason = "ONNX Runtime has no native library for this platform")
 @SpringBootTest(properties = "embedding.provider=onnx")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")

@@ -54,7 +54,7 @@ public final class OnnxEmbedder implements TextEmbedder, AutoCloseable {
   public OnnxEmbedder(String modelId, Path modelPath, Path tokenizerPath, int maxSequenceLength) {
     this.modelId = modelId;
     try {
-      this.environment = OrtEnvironment.getEnvironment();
+      this.environment = loadRuntime();
       this.session =
           environment.createSession(modelPath.toString(), new OrtSession.SessionOptions());
       this.tokenizer =
@@ -70,6 +70,28 @@ public final class OnnxEmbedder implements TextEmbedder, AutoCloseable {
       throw new IllegalStateException("Could not load the tokenizer at " + tokenizerPath, e);
     }
     log.info("Loaded {} from {}, {} dimensions", modelId, modelPath, dimensions);
+  }
+
+  /**
+   * Loads the native runtime, naming the platform when there is no binary for it.
+   *
+   * <p>The jar carries linux-x64, linux-aarch64, osx-aarch64 and win-x64. A machine outside that
+   * list fails with an {@link UnsatisfiedLinkError} from deep inside the loader, which says nothing
+   * about what to do instead.
+   */
+  private static OrtEnvironment loadRuntime() {
+    try {
+      return OrtEnvironment.getEnvironment();
+    } catch (Throwable failure) {
+      throw new IllegalStateException(
+          "ONNX Runtime has no native library for "
+              + System.getProperty("os.name")
+              + " "
+              + System.getProperty("os.arch")
+              + ". It supports linux-x64, linux-aarch64, osx-aarch64 and win-x64. Set "
+              + "EMBEDDING_PROVIDER=hashing to run without a model, or openai to use a hosted one.",
+          failure);
+    }
   }
 
   @Override

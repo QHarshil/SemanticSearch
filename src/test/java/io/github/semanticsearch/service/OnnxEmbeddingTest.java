@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -21,6 +22,9 @@ import org.springframework.test.context.ActiveProfiles;
  * <p>Requires the model. It is around ninety megabytes and is downloaded to {@code
  * ~/.cache/semantic-search-java/models} on first use, then reused.
  */
+@EnabledIf(
+    value = "io.github.semanticsearch.support.OnnxRuntimeAvailable#loads",
+    disabledReason = "ONNX Runtime has no native library for this platform")
 @SpringBootTest(properties = "embedding.provider=onnx")
 @ActiveProfiles("test")
 class OnnxEmbeddingTest {

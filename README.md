@@ -42,9 +42,34 @@ the search cache and the lexical index. Rebuilding the postings on the next quer
 costs a pass over the corpus, which is the price of BM25 statistics that are
 corpus-wide.
 
-## Quick start
+## Requirements
 
-Requires JDK 21 or later. No database, no Docker.
+JDK 21 or later, and nothing else to start: no database, no Docker, no Node.
+`./mvnw` and `mvnw.cmd` are both committed, and `.gitattributes` normalises line
+endings, so a clone works the same on Linux, macOS and Windows.
+
+The `onnx` provider is the one exception. It loads a native library, and the one
+that ships supports four platforms:
+
+| | `hashing`, `openai` | `onnx` |
+| --- | --- | --- |
+| Linux x86-64 | yes | yes |
+| Linux arm64 | yes | yes |
+| macOS Apple silicon | yes | yes |
+| Windows x86-64 | yes | yes |
+| macOS Intel | yes | **no** |
+
+Microsoft stopped shipping a macOS x86-64 build of ONNX Runtime after 1.22, so
+there is no binary to load. Selecting the provider there fails at startup with a
+message naming the platform, and the tests that need it skip, the same way the
+Elasticsearch tests skip when no Docker daemon is running. Everything else in
+this repository is pure Java.
+
+The published image is Debian-based for the same reason: both native libraries
+are linked against glibc and neither has a musl build, so on Alpine the `onnx`
+provider fails while the others keep working.
+
+## Quick start
 
 ```bash
 ./mvnw clean package

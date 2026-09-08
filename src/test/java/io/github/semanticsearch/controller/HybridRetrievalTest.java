@@ -15,6 +15,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -53,6 +54,9 @@ import io.github.semanticsearch.service.LexicalIndex;
  * Recovering the document into the candidate pool is not the same as ranking it, and which method
  * ranks it follows from the arithmetic.
  */
+@EnabledIf(
+    value = "io.github.semanticsearch.support.OnnxRuntimeAvailable#loads",
+    disabledReason = "ONNX Runtime has no native library for this platform")
 @SpringBootTest(properties = "embedding.provider=onnx")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")

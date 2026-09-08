@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cache.CacheManager;
@@ -19,6 +20,9 @@ import io.github.semanticsearch.repository.DocumentRepository;
  * is worth its download, and it keeps that claim tied to something the build checks rather than to
  * a number written down once.
  */
+@EnabledIf(
+    value = "io.github.semanticsearch.support.OnnxRuntimeAvailable#loads",
+    disabledReason = "ONNX Runtime has no native library for this platform")
 @SpringBootTest(properties = "embedding.provider=onnx")
 @ActiveProfiles("test")
 class OnnxEvalTest {
