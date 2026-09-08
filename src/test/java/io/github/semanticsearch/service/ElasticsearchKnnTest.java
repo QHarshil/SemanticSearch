@@ -34,9 +34,9 @@ import io.github.semanticsearch.repository.DocumentRepository;
  *
  * <p>It covers the parts of {@link IndexService} that only a real cluster can exercise: the kNN
  * query shape, the {@code dense_vector} mapping, the flattened metadata field and the score
- * conversion. The score assertions matter most - Elasticsearch reports a cosine kNN hit as {@code
- * (1 + cosine) / 2}, so dropping the conversion would leave unrelated documents scoring 0.5 and
- * change what every {@code minScore} means.
+ * conversion. The score assertions matter most. Elasticsearch reports a cosine kNN hit as {@code (1
+ * + cosine) / 2}, so dropping the conversion would leave unrelated documents scoring 0.5 and change
+ * what every {@code minScore} means.
  *
  * <p>Skipped when no Docker daemon is available so a local build without Docker still passes.
  */
