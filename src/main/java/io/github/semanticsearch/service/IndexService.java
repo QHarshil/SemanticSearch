@@ -319,9 +319,8 @@ public class IndexService {
   /**
    * Remove every passage belonging to a document.
    *
-   * <p>Deleting one entry was enough when a document was one vector. It is not now: a document
-   * split into four passages would keep matching queries through the three left behind, under an id
-   * whose row no longer exists.
+   * <p>A document split into four passages needs four deletions. Removing one would leave the other
+   * three matching queries under an id whose row no longer exists.
    *
    * @return true unless the index rejected the request
    */

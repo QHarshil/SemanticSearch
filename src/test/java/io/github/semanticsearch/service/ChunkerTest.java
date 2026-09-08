@@ -137,7 +137,7 @@ class ChunkerTest {
   @Test
   void rejectsAnOverlapThatWouldNeverAdvance() {
     // Overlap equal to the window means every passage starts where the last one
-    // did, which is an infinite loop rather than a configuration.
+    // did, so the loop never advances.
     assertThrows(IllegalArgumentException.class, () -> new Chunker(10, 10));
     assertThrows(IllegalArgumentException.class, () -> new Chunker(10, 11));
     assertThrows(IllegalArgumentException.class, () -> new Chunker(0, 0));
