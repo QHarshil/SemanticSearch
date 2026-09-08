@@ -322,7 +322,7 @@ public class IndexService {
    * <p>A document split into four passages needs four deletions. Removing one would leave the other
    * three matching queries under an id whose row no longer exists.
    *
-   * @return true unless the index rejected the request
+   * @return whether anything was removed, so a caller can tell an empty index from a failed call
    */
   public boolean deleteDocumentVectors(Document document) {
     UUID documentId = document.getId();
