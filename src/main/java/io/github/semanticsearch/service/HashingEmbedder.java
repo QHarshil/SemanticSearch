@@ -19,7 +19,7 @@ import java.util.Map;
  *
  * <p>Vectors are L2-normalised, so cosine similarity reduces to a dot product.
  */
-public final class HashingEmbedder {
+public final class HashingEmbedder implements TextEmbedder {
 
   /**
    * Identifies the feature-extraction scheme below. Any change to tokenization, n-gram range or
@@ -47,8 +47,14 @@ public final class HashingEmbedder {
     this.dimensions = dimensions;
   }
 
+  @Override
   public int dimensions() {
     return dimensions;
+  }
+
+  @Override
+  public String modelId() {
+    return "hashing/" + ALGORITHM_VERSION;
   }
 
   /**
@@ -57,6 +63,7 @@ public final class HashingEmbedder {
    * @param text text to embed; null or blank input yields a zero vector
    * @return a vector of length {@link #dimensions()}
    */
+  @Override
   public double[] embed(String text) {
     double[] vector = new double[dimensions];
     if (text == null || text.isBlank()) {

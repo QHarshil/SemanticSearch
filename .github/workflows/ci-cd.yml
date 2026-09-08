@@ -61,6 +61,15 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      # The ONNX tests need all-MiniLM-L6-v2, around ninety megabytes. Keyed on
+      # the digests in application.yml so a model change fetches the new weights
+      # instead of matching a stale cache entry.
+      - name: Cache the embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/semantic-search-java/models
+          key: onnx-models-${{ hashFiles('src/main/resources/application.yml') }}
+
       # Runs spotless, the tests and the JaCoCo coverage gate. No skip flags:
       # every check configured in the pom is one CI actually enforces.
       - name: Build with Maven

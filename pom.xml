@@ -24,6 +24,8 @@
         <testcontainers.version>1.19.1</testcontainers.version>
         <resilience4j.version>2.1.0</resilience4j.version>
         <flyway.version>11.19.1</flyway.version>
+        <onnxruntime.version>1.29.0</onnxruntime.version>
+        <djl.version>0.37.0</djl.version>
 
         <!-- Overrides of spring-boot-starter-parent managed versions, applied to
              pick up security fixes ahead of the next Spring Boot release.
@@ -110,6 +112,20 @@
             <version>${resilience4j.version}</version>
         </dependency>
         
+        <!-- Local transformer inference. onnxruntime executes the model; the DJL
+             binding to the Hugging Face tokenizers library produces the token ids
+             it expects, which have to match the ones the model was trained with. -->
+        <dependency>
+            <groupId>com.microsoft.onnxruntime</groupId>
+            <artifactId>onnxruntime</artifactId>
+            <version>${onnxruntime.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ai.djl.huggingface</groupId>
+            <artifactId>tokenizers</artifactId>
+            <version>${djl.version}</version>
+        </dependency>
+
         <!-- Monitoring -->
         <dependency>
             <groupId>io.micrometer</groupId>

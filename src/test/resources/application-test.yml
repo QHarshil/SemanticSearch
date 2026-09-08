@@ -28,7 +28,7 @@ elasticsearch:
   stub-enabled: true
 
 embedding:
-  local-enabled: true
+  provider: hashing
   dimensions: 128
 
 # Pinned rather than inherited so ranking tests do not silently change meaning if

@@ -3,6 +3,7 @@ package io.github.semanticsearch.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -22,11 +23,13 @@ class EmbeddingServiceTest {
 
   private static final int DIMENSIONS = 128;
   private static final String MODEL = "text-embedding-3-small";
+  private static final String HASHING = "hashing";
+  private static final String OPENAI = "openai";
 
   private final HashingEmbedder embedder = new HashingEmbedder(DIMENSIONS);
 
   @Test
-  void usesTheLocalEmbedderWhenLocalIsEnabled() {
+  void usesTheInProcessEmbedderWhenTheProviderIsLocal() {
     EmbeddingService service = localService(DIMENSIONS, failingClient());
 
     List<Double> embedding = service.embed("semantic search works");
@@ -37,9 +40,33 @@ class EmbeddingServiceTest {
   }
 
   @Test
+  void rejectsAProviderNameItDoesNotRecognise() {
+    // A typo here would otherwise pick a provider by accident and fill the index
+    // with vectors from a model nobody chose.
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new EmbeddingService(embedder, null, "onx", DIMENSIONS, MODEL));
+
+    assertTrue(thrown.getMessage().contains("hashing, onnx, openai"), thrown.getMessage());
+  }
+
+  @Test
+  void reportsTheWidthOfTheInProcessModelRatherThanTheConfiguredOne() {
+    // A transformer's width is fixed by its weights. Believing the property
+    // instead would build the index mapping around a number the vectors cannot
+    // satisfy.
+    EmbeddingService service =
+        new EmbeddingService(new HashingEmbedder(384), null, HASHING, DIMENSIONS, MODEL);
+
+    assertEquals(384, service.dimensions());
+    assertEquals(384, service.embed("any text at all").size());
+  }
+
+  @Test
   void fallsBackToTheLocalEmbedderWhenNoProviderIsConfigured() {
     // A null client is the "no API key supplied" case; the service must still work.
-    EmbeddingService service = new EmbeddingService(embedder, null, false, DIMENSIONS, MODEL);
+    EmbeddingService service = new EmbeddingService(embedder, null, OPENAI, DIMENSIONS, MODEL);
 
     assertTrue(service.isLocal());
     assertEquals(DIMENSIONS, service.embed("anything").size());
@@ -62,7 +89,8 @@ class EmbeddingServiceTest {
     // Indexing a wrong-width vector is rejected by Elasticsearch and scores as
     // zero in the in-memory index, so an empty result is the honest outcome.
     OpenAiEmbeddingClient wrongWidth = clientReturning(List.of(0.1, 0.2, 0.3));
-    EmbeddingService service = new EmbeddingService(embedder, wrongWidth, false, DIMENSIONS, MODEL);
+    EmbeddingService service =
+        new EmbeddingService(embedder, wrongWidth, OPENAI, DIMENSIONS, MODEL);
 
     assertTrue(service.embed("text").isEmpty());
   }
@@ -71,7 +99,7 @@ class EmbeddingServiceTest {
   void usesTheProviderResponseWhenTheWidthMatches() {
     List<Double> provided = vectorOfWidth();
     EmbeddingService service =
-        new EmbeddingService(embedder, clientReturning(provided), false, DIMENSIONS, MODEL);
+        new EmbeddingService(embedder, clientReturning(provided), OPENAI, DIMENSIONS, MODEL);
 
     assertEquals(provided, service.embed("text"));
     assertFalse(service.isLocal());
@@ -86,15 +114,15 @@ class EmbeddingServiceTest {
   void theCacheNamespaceSeparatesProviderModelAndWidth() {
     String local = localService(DIMENSIONS, null).cacheNamespace();
     String narrower =
-        new EmbeddingService(new HashingEmbedder(64), null, true, 64, MODEL).cacheNamespace();
+        new EmbeddingService(new HashingEmbedder(64), null, HASHING, 64, MODEL).cacheNamespace();
     String hosted =
-        new EmbeddingService(embedder, clientReturning(vectorOfWidth()), false, DIMENSIONS, MODEL)
+        new EmbeddingService(embedder, clientReturning(vectorOfWidth()), OPENAI, DIMENSIONS, MODEL)
             .cacheNamespace();
     String otherModel =
         new EmbeddingService(
                 embedder,
                 clientReturning(vectorOfWidth()),
-                false,
+                OPENAI,
                 DIMENSIONS,
                 "text-embedding-3-large")
             .cacheNamespace();
@@ -105,7 +133,8 @@ class EmbeddingServiceTest {
   }
 
   private EmbeddingService localService(int dimensions, OpenAiEmbeddingClient client) {
-    return new EmbeddingService(new HashingEmbedder(dimensions), client, true, dimensions, MODEL);
+    return new EmbeddingService(
+        new HashingEmbedder(dimensions), client, HASHING, dimensions, MODEL);
   }
 
   private static List<Double> vectorOfWidth() {

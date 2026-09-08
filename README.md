@@ -19,7 +19,8 @@ is the blended one described below.
 flowchart LR
     C[Client] -->|GET /search| S[SearchService]
     S -->|embed query| EM[EmbeddingService]
-    EM --> HE[HashingEmbedder<br/>local, default]
+    EM --> HE[HashingEmbedder<br/>lexical, default]
+    EM --> ON[OnnxEmbedder<br/>all-MiniLM-L6-v2, local]
     EM --> OA[OpenAI<br/>text-embedding-3-*]
     EM -.->|cached by<br/>provider/model/width + text| RD[(Redis)]
     S -->|kNN, metadata pre-filter<br/>5x the requested limit| IX[IndexService]
@@ -44,8 +45,9 @@ java -jar target/semantic-search-java-1.0.0.jar --spring.profiles.active=demo
 ```
 
 The `demo` profile runs entirely in memory: H2 for storage, an in-process vector
-index, local embeddings and no authentication. It seeds a small corpus at
-startup so search returns something immediately.
+index, the lexical embedder and no authentication. It seeds a small corpus at
+startup so search returns something immediately. Add `EMBEDDING_PROVIDER=onnx`
+for semantic matching; the first run downloads a 90 MB model.
 
 | | |
 | --- | --- |
@@ -95,12 +97,15 @@ Because retrieval is vector-first, lexical scoring refines the ordering of
 candidates rather than widening recall. The over-fetch is what gives it room to
 change the outcome.
 
-`minScore` is a floor on the score you get back, applied to the blended score
-after boosts and decay — not to the raw vector score, which is always lower. Its
-default of `0.2` is calibrated to the local embedder: over the gold set, the best
-match for a natural-language query scores between 0.32 and 0.53, every query still
-returns something at a floor of 0.3, and none do at 0.4. A hosted model spreads
-scores differently and may want a higher floor.
+`minScore` is a floor on the score you get back. It is applied to the blended
+score after boosts and decay, not to the raw vector score, which is always lower.
+
+Its default of `0.2` is calibrated to the lexical default: over the gold set the
+best match for a natural-language query scores between 0.32 and 0.53, every query
+still returns something at a floor of 0.3, and none do at 0.4. Under `onnx` the
+same eight queries score 0.36 to 0.64, so the default leaves more headroom there.
+Any other model spreads scores differently, and a floor set for one is not a
+floor for another.
 
 ### Recency
 
@@ -123,16 +128,37 @@ Set `search.recency-floor: 0.0` for the unbounded curve, or
 
 ### Embeddings
 
-Two providers, selected by `EMBEDDING_LOCAL_ENABLED`:
+Three providers, selected by `EMBEDDING_PROVIDER`:
 
-- **Local (default).** A feature-hashing vectoriser over word tokens and
-  character n-grams, with sublinear term-frequency weighting. It needs no API
-  key and no model download, and it is deterministic. It is a *lexical* model:
-  it scores shared words and word fragments, so "ranking" and "ranked" are
-  close, but it does not know that "car" and "automobile" are related.
-- **OpenAI.** Set `EMBEDDING_LOCAL_ENABLED=false`, supply `EMBEDDING_API_KEY`
-  and set `EMBEDDING_DIMENSIONS` to match the model (1536 for
-  `text-embedding-3-small` at full width).
+- **`hashing` (default).** A feature-hashing vectoriser over word tokens and
+  character n-grams, with sublinear term-frequency weighting. No API key, no
+  model download, deterministic. It is a *lexical* model: it scores shared words
+  and word fragments, so "ranking" and "ranked" score 0.26 where two unrelated
+  words score below zero, but it has no way to know that "car" and "automobile"
+  are related.
+- **`onnx`.** all-MiniLM-L6-v2 run in-process through ONNX Runtime, 384
+  dimensions. Token vectors are mean-pooled over the attention mask and
+  L2-normalised, which is how the model was trained to produce a sentence vector.
+  It scores "car" against "automobile" at 0.86 and against "banana" at 0.39.
+  Still no API key, and still deterministic, at the cost of a 90 MB model file
+  and about 1.3 ms per uncached query.
+- **`openai`.** Supply `EMBEDDING_API_KEY` and set `EMBEDDING_DIMENSIONS` to
+  match the model (1536 for `text-embedding-3-small` at full width).
+
+The ONNX weights are fetched from Hugging Face on first use, pinned to a commit
+and checked against a SHA-256 in `application.yml`, then cached under
+`~/.cache/semantic-search-java/models`. A file that does not match its digest is
+rejected instead of loaded. Set `EMBEDDING_ONNX_AUTO_DOWNLOAD=false` to require
+that the files are already there.
+
+ONNX Runtime ships native libraries for every platform it supports in one jar,
+which takes the built artifact from 96 MB to 173 MB whether or not the provider
+is switched on.
+
+```bash
+EMBEDDING_PROVIDER=onnx java -jar target/semantic-search-java-1.0.0.jar \
+  --spring.profiles.active=demo
+```
 
 Vectors from different models are not comparable. After switching providers or
 changing the dimension, rebuild the index:
@@ -147,61 +173,89 @@ curl -X POST http://localhost:8080/api/v1/search/index/rebuild
 returns MRR, NDCG@k and Recall@k. CI publishes the same report as the
 `eval-report` artifact.
 
-The numbers below are a verbatim run of that endpoint on the `demo` profile —
-local embedder, 256 dimensions, eight documents. The committed copy is
-[`docs/eval-report.json`](docs/eval-report.json); regenerate it with
-`curl -s localhost:8080/api/v1/eval/run?k=5 > docs/eval-report.json`.
+The numbers below are verbatim runs of that endpoint on the `demo` profile over
+the same eight documents, once per local provider. The committed copies are
+[`docs/eval-report.json`](docs/eval-report.json) and
+[`docs/eval-report-onnx.json`](docs/eval-report-onnx.json); regenerate either
+with `curl -s localhost:8080/api/v1/eval/run?k=5 > docs/eval-report.json`.
 
-**MRR 0.615 · NDCG@5 0.679 · Recall@5 0.875 · 8 queries**
+| | MRR | NDCG@5 | Recall@5 | Gold document ranked first |
+| --- | --- | --- | --- | --- |
+| `hashing`, 256 dimensions | 0.615 | 0.679 | 0.875 | 4 of 8 |
+| `onnx`, 384 dimensions | **0.854** | **0.891** | **1.000** | **6 of 8** |
 
-| Gold query | RR | NDCG@5 | Recall@5 |
-| --- | --- | --- | --- |
-| how does embedding similarity work | 0.25 | 0.43 | 1.00 |
-| what affects result ordering | 0.00 | 0.00 | 0.00 |
-| keeping p95 response time low | 1.00 | 1.00 | 1.00 |
-| boosting newer documents | 0.33 | 0.50 | 1.00 |
-| measuring search quality offline | 0.33 | 0.50 | 1.00 |
-| term frequency scoring | 1.00 | 1.00 | 1.00 |
-| splitting large files into passages | 1.00 | 1.00 | 1.00 |
-| avoiding repeated work per query | 1.00 | 1.00 | 1.00 |
+Per query, as reciprocal rank:
 
-Four queries rank their gold document first. `what affects result ordering`
-misses entirely — it shares no word with *Ranking Signals* beyond stopwords,
-which is the specific thing a lexical embedder cannot do and the clearest
-argument for a hosted model. The build fails if these regress; thresholds live in
-`EvalServiceIntegrationTest`, set below measured performance so ordinary tuning
-does not break it.
+| Gold query | `hashing` | `onnx` |
+| --- | --- | --- |
+| how does embedding similarity work | 0.25 | 0.33 |
+| what affects result ordering | 0.00 | 0.50 |
+| keeping p95 response time low | 1.00 | 1.00 |
+| boosting newer documents | 0.33 | 1.00 |
+| measuring search quality offline | 0.33 | 1.00 |
+| term frequency scoring | 1.00 | 1.00 |
+| splitting large files into passages | 1.00 | 1.00 |
+| avoiding repeated work per query | 1.00 | 1.00 |
+
+`what affects result ordering` is the query that separates the two. It shares no
+word with *Ranking Signals* beyond stopwords, so the lexical embedder never
+retrieves it at all; the transformer puts it second. The two remaining
+imperfect rows under `onnx` are both cases where a topically adjacent document
+outranks the gold one, which one relevant document per query cannot distinguish
+from a genuine miss.
+
+The build fails if either provider regresses. Thresholds live in
+`EvalServiceIntegrationTest` and `OnnxEvalTest`, set below the measured values so
+ordinary tuning does not break them, and the ONNX thresholds sit above everything
+the lexical embedder reaches, so a config change that quietly falls back to it
+fails the build.
 
 Eight queries with one relevant document each is a regression guard, not a
-relevance benchmark — too small to support a claim about ranking quality in
+relevance benchmark. It is too small to support a claim about ranking quality in
 general.
 
-### Local lexical mode vs hosted semantic mode
+### Choosing a provider
 
-|  | Local (default) | OpenAI |
-| --- | --- | --- |
-| Setup | none | `EMBEDDING_API_KEY`, `EMBEDDING_LOCAL_ENABLED=false` |
-| Matches on | shared words and character n-grams | learned meaning |
-| `ranking` ≈ `ranked` | yes, shared n-grams | yes |
-| `car` ≈ `automobile` | **no** | yes |
-| Cost / latency | none, in-process | per-call, network-bound |
-| Determinism | exact | model-version dependent |
-| Measured MRR on the gold set | 0.615 | not measured here |
+|  | `hashing` (default) | `onnx` | `openai` |
+| --- | --- | --- | --- |
+| Setup | none | 90 MB model, fetched on first use | `EMBEDDING_API_KEY` |
+| Matches on | shared words and character n-grams | learned meaning | learned meaning |
+| `ranking` ≈ `ranked` | 0.26 | 0.82 | yes |
+| `car` ≈ `automobile` | **-0.12** | 0.86 | yes |
+| `car` ≈ `banana` | -0.21 | 0.39 | |
+| Added latency per uncached query | none | 1.3 ms | a network round trip |
+| Runs offline | yes | yes | no |
+| Determinism | exact | exact | model-version dependent |
+| MRR on the gold set | 0.615 | 0.854 | not measured here |
 
-The gold queries are natural-language paraphrases, which is deliberately hard for
-a lexical model. A hosted model should score higher; that figure is left blank
-rather than estimated.
+Cosine similarities are measured at each provider's own width, 256 for `hashing`
+and 384 for `onnx`. Single words are the hardest case for feature hashing,
+because two short strings give it very few features to collide on, which is why
+`car` and `automobile` land slightly below zero instead of merely far apart.
+
+The OpenAI column is left unmeasured. Nothing in this repository has run against
+it, and an estimate would read like a measurement.
 
 ### Latency
 
-Measured on the `demo` profile, 30 sequential requests over six distinct queries
-against the in-memory index: **median 1.9 ms, p95 4.9 ms**.
+Measured on the `demo` profile against the in-memory index, sequential requests
+from `curl` on the same machine:
 
-That number describes an eight-document in-process index with a warm result
-cache, so treat it as a floor for pipeline overhead rather than a throughput
-result. `perf/k6-smoke.js` is a 10-user, 30-second smoke test over a single
-repeated query — it checks the service stays up and under `p95 < 400ms`, and is
-not a load benchmark:
+| | median | p95 |
+| --- | --- | --- |
+| `hashing`, warm cache, 30 requests over 6 repeated queries | 1.9 ms | 2.3 ms |
+| `onnx`, warm cache, 30 requests over 6 repeated queries | 2.0 ms | 2.4 ms |
+| `hashing`, 50 queries each seen once | 3.7 ms | 5.0 ms |
+| `onnx`, 50 queries each seen once | 5.0 ms | 6.1 ms |
+
+The warm rows barely move between providers because a cache hit returns before
+anything is embedded. The difference between the two cold rows, about 1.3 ms, is
+what running the transformer actually costs.
+
+These describe an eight-document in-process index, so treat them as a floor for
+pipeline overhead and not as a throughput result. `perf/k6-smoke.js` is a
+10-user, 30-second smoke test over a single repeated query. It checks the service
+stays up and under `p95 < 400ms`, and is not a load benchmark:
 
 ```bash
 BASE_URL=http://localhost:8080 k6 run perf/k6-smoke.js
@@ -248,10 +302,12 @@ not a bare array.
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `EMBEDDING_LOCAL_ENABLED` | Use the built-in local embedder | `true` |
-| `EMBEDDING_DIMENSIONS` | Vector width; also the index mapping | `256` |
-| `EMBEDDING_API_KEY` | Required when local embeddings are off | — |
+| `EMBEDDING_PROVIDER` | `hashing`, `onnx` or `openai` | `hashing` |
+| `EMBEDDING_DIMENSIONS` | Vector width for `hashing` and `openai`; also the index mapping. `onnx` reports its own. | `256` |
+| `EMBEDDING_API_KEY` | Required by the `openai` provider | — |
 | `EMBEDDING_MODEL` | Hosted model name | `text-embedding-3-small` |
+| `EMBEDDING_ONNX_MODEL_DIR` | Where the ONNX model is cached | `~/.cache/semantic-search-java/models/all-MiniLM-L6-v2` |
+| `EMBEDDING_ONNX_AUTO_DOWNLOAD` | Fetch the model when it is not cached | `true` |
 | `ELASTICSEARCH_STUB_ENABLED` | Use the in-process vector index | `true` |
 | `ELASTICSEARCH_HOST` / `_PORT` | Cluster to use when the stub is off | `localhost` / `9200` |
 | `SECURITY_AUTH_ENABLED` | HTTP basic auth | `true` |
@@ -304,17 +360,24 @@ src/main/java/io/github/semanticsearch/
   security/     authentication and CORS
 ui/             React frontend source
 perf/           k6 smoke test
-docs/           eval report and README images
+docs/           eval reports and README images
 ```
 
-Notable pieces: `HashingEmbedder` (the local embedding model),
-`SearchService.search` (the retrieve/re-rank pipeline), `DocumentService` (the
-write path, and the only place that invalidates caches), `CorpusStatistics`
-(corpus-wide BM25 term statistics), `EvalService` (the gold set and metrics).
+Notable pieces: `HashingEmbedder` and `OnnxEmbedder` (the two in-process
+embedding models, both behind `TextEmbedder`), `ModelCache` (fetches model
+weights and checks them against a digest), `SearchService.search` (the
+retrieve/re-rank pipeline), `DocumentService` (the write path, and the only place
+that invalidates caches), `CorpusStatistics` (corpus-wide BM25 term statistics),
+`EvalService` (the gold set and metrics).
 
 ### Known limitations
 
-- The local embedder is lexical, not semantic. Synonyms need a hosted model.
+- The default embedder is lexical, so out of the box synonyms do not match.
+  `EMBEDDING_PROVIDER=onnx` fixes that at the cost of a model download.
+- The ONNX provider embeds a whole document as one vector. A long document with
+  several unrelated sections averages into a vector that represents none of them,
+  and the 256-token window drops everything past roughly the first two hundred
+  words. Passage-level chunking is the fix.
 - Lexical scoring re-ranks the vector candidate pool; it does not add recall. A
   document that BM25 would rank first but that the vector stage never retrieved
   cannot be recovered. Fixing that means retrieving lexically and by vector

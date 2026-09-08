@@ -13,13 +13,14 @@ import org.springframework.stereotype.Service;
 
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
+import io.github.semanticsearch.config.EmbeddingProvider;
 
 /**
- * Generates text embeddings, either locally or through a hosted provider.
+ * Generates text embeddings, either in-process or through a hosted provider.
  *
- * <p>Which one is used depends on {@code embedding.local-enabled}. The local {@link
- * HashingEmbedder} is the default so the service runs with no API key; it is lexical rather than
- * semantic, and the trade-off is documented on that class.
+ * <p>{@code embedding.provider} chooses between them. {@link HashingEmbedder} is the default
+ * because it needs no model file and no API key; it is lexical, so it matches shared words and not
+ * shared meaning. {@link OnnxEmbedder} and the hosted provider are both semantic.
  *
  * <p>All vectors this service returns have {@link #dimensions()} elements, whichever provider
  * produced them, so the search index mapping only has to agree with one number.
@@ -29,26 +30,29 @@ public class EmbeddingService {
 
   private static final Logger log = LoggerFactory.getLogger(EmbeddingService.class);
 
-  private final HashingEmbedder localEmbedder;
+  private final TextEmbedder localEmbedder;
   private final OpenAiEmbeddingClient openAiClient;
   private final boolean local;
   private final int dimensions;
   private final String cacheNamespace;
 
   public EmbeddingService(
-      HashingEmbedder localEmbedder,
+      TextEmbedder localEmbedder,
       @Nullable OpenAiEmbeddingClient openAiClient,
-      @Value("${embedding.local-enabled:true}") boolean localEnabled,
+      @Value("${embedding.provider:hashing}") String provider,
       @Value("${embedding.dimensions:256}") int dimensions,
       @Value("${embedding.model:text-embedding-3-small}") String model) {
     this.localEmbedder = localEmbedder;
     this.openAiClient = openAiClient;
-    this.local = localEnabled || openAiClient == null;
-    this.dimensions = dimensions;
+    this.local =
+        EmbeddingProvider.from(provider) != EmbeddingProvider.OPENAI || openAiClient == null;
+    // An in-process model fixes its own width, so it is the authority rather than
+    // the property: asking a 384-dimension transformer for 256 numbers is not a
+    // thing it can do, and a mismatch here reaches the index as a mapping the
+    // vectors cannot satisfy.
+    this.dimensions = this.local ? localEmbedder.dimensions() : dimensions;
     this.cacheNamespace =
-        (this.local ? "local/" + HashingEmbedder.ALGORITHM_VERSION : "openai/" + model)
-            + "/"
-            + dimensions;
+        (this.local ? localEmbedder.modelId() : "openai/" + model) + "/" + this.dimensions;
   }
 
   /** Width of every vector this service returns. */
@@ -56,7 +60,7 @@ public class EmbeddingService {
     return dimensions;
   }
 
-  /** True when embeddings are produced locally rather than by a hosted provider. */
+  /** True when embeddings are produced in this process instead of by a hosted provider. */
   public boolean isLocal() {
     return local;
   }

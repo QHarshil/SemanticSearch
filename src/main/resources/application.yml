@@ -66,18 +66,35 @@ elasticsearch:
     auto-init: true
   # In-memory vector index. Defaults to true so the service starts with no
   # external dependencies; set to false to use a real Elasticsearch cluster.
-  # Whichever index is active, its mapping is built from embedding.dimensions
-  # below, so the two cannot disagree on vector width.
+  # Whichever index is active, its mapping is built from the width the active
+  # embedding provider reports, so the two cannot disagree.
   stub-enabled: ${ELASTICSEARCH_STUB_ENABLED:true}
 
 embedding:
-  # When true (the default) embeddings are produced locally by HashingEmbedder
-  # and no API key is needed. Set to false to call the hosted provider.
-  local-enabled: ${EMBEDDING_LOCAL_ENABLED:true}
-  # Vector width. This is the single source of truth: the search index mapping is
-  # built from it, and the hosted provider is asked to return this many
-  # dimensions. Use 1536 for text-embedding-3-small at full width.
+  # hashing: feature hashing over words and character n-grams. Lexical, in-process,
+  #          needs nothing, and the default so the service starts anywhere.
+  # onnx:    a sentence-transformer run locally. Semantic, and downloads a model
+  #          file of about ninety megabytes on first use.
+  # openai:  a hosted embedding API. Semantic, needs a key.
+  provider: ${EMBEDDING_PROVIDER:hashing}
+  # Vector width for the hashing and hosted providers; the search index mapping is
+  # built from it. Use 1536 for text-embedding-3-small at full width. The onnx
+  # provider ignores this and reports the width of the loaded model, since that is
+  # fixed by the weights.
   dimensions: ${EMBEDDING_DIMENSIONS:256}
+  onnx:
+    model-id: onnx/all-MiniLM-L6-v2
+    # model-dir defaults to ~/.cache/semantic-search-java/models/<model name>.
+    # Override it with EMBEDDING_ONNX_MODEL_DIR.
+    auto-download: ${EMBEDDING_ONNX_AUTO_DOWNLOAD:true}
+    # Pinned to a commit rather than a branch, and checked against the digests
+    # below, so the vectors in the index are always the ones the reported
+    # relevance figures were measured with.
+    model-url: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/onnx/model.onnx
+    model-sha256: 6fd5d72fe4589f189f8ebc006442dbb529bb7ce38f8082112682524616046452
+    tokenizer-url: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/tokenizer.json
+    tokenizer-sha256: be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037
+    max-sequence-length: 256
   api:
     key: ${EMBEDDING_API_KEY:}
     base-url: ${EMBEDDING_API_BASE_URL:https://api.openai.com}
@@ -184,7 +201,7 @@ elasticsearch:
   stub-enabled: true
 
 embedding:
-  local-enabled: true
+  provider: hashing
 
 seed:
   demo:
