@@ -319,11 +319,17 @@ answer 1,200 queries.
 | Hybrid, `rrf` | **0.685** | **0.968** | **0.648** | 13.0 ms | 14.5 ms |
 
 Table 2 of the [BEIR paper](https://arxiv.org/abs/2104.08663) reports NDCG@10 on
-this same split: BM25 0.665, TAS-B 0.643, GenQ 0.644, ColBERT 0.671, ANCE 0.507,
-DPR 0.318. The BM25 row above lands at 0.667 against their 0.665, which is the
-useful part of running a published benchmark: the lexical retriever here is
-reproducing a number computed by a different implementation, so the numbers
-beside it can be read as measurements and not as claims.
+this same split for six systems, so those rows can go beside these ones:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/scifact-dark.svg">
+  <img alt="NDCG@10 on BEIR SciFact. This service: hybrid with rank fusion 0.685, hybrid with the weighted blend 0.676, BM25 alone 0.667, vector alone 0.644. BEIR paper Table 2: ColBERT 0.671, BM25 0.665, GenQ 0.644, TAS-B 0.643, ANCE 0.507, DPR 0.318." src="docs/images/scifact-light.svg" width="760">
+</picture>
+
+The BM25 row lands at 0.667 against their 0.665, which is the useful part of
+running a published benchmark: the lexical retriever here is reproducing a number
+computed by a different implementation, so the numbers beside it can be read as
+measurements and not as claims.
 
 Rank fusion is the configuration that beats every model in that table. It is also
 the one the eight-query gold set says is worse, which is what a corpus of eight
@@ -357,6 +363,13 @@ reach at all.
 The BM25 is this repository's, not Anserini's, and the tokenizer and stop-word
 list differ. The dense row is all-MiniLM-L6-v2, which is not in that table. Each
 row is a single run on a laptop, with no significance testing.
+
+The vector timings are exact search, not approximate. The benchmark runs on the
+in-process index, which scores the query against every stored passage, so those
+milliseconds grow linearly with the corpus and say nothing about how HNSW
+behaves. Elasticsearch is where the approximate path lives, and measuring its
+recall against exact search across `ef_search` and `m` is the missing
+measurement here.
 
 ### Choosing a provider
 
@@ -577,9 +590,12 @@ Notable pieces:
 - The default embedder is lexical, so synonyms do not match under the default
   configuration.
   `EMBEDDING_PROVIDER=onnx` fixes that at the cost of a model download.
-- The inverted index is held in memory and rebuilt from the repository whenever
-  the corpus changes size, so lexical retrieval costs a full rescan per write and
-  the postings sit on the heap. For a large corpus, push lexical retrieval into
+- The in-process vector index, which is the default, scores every stored passage
+  per query. Query cost grows linearly with the corpus. Elasticsearch is the
+  approximate path, and nothing here measures its recall against exact search.
+- The inverted index is held in memory and rebuilt from the repository after
+  every write, so lexical retrieval costs a full rescan per write and the
+  postings sit on the heap. For a large corpus, push lexical retrieval into
   Elasticsearch, which maintains an inverted index natively and can combine the
   two rankings itself.
 - Metadata filters reach the vector retriever, which applies them inside the kNN
