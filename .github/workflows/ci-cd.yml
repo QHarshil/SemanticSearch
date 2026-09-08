@@ -47,8 +47,15 @@ jobs:
           fi
 
   build:
-    name: Build and test
-    runs-on: ubuntu-latest
+    # Both platforms run the whole suite. The point of the second one is the
+    # native libraries: ONNX Runtime and the tokenizer load a different binary on
+    # each, and nothing else in the build would notice a broken one.
+    name: Build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     permissions:
       contents: read
     steps:
@@ -63,21 +70,27 @@ jobs:
 
       # The ONNX tests need all-MiniLM-L6-v2, around ninety megabytes. Keyed on
       # the digests in application.yml so a model change fetches the new weights
-      # instead of matching a stale cache entry.
+      # instead of matching a stale cache entry, and on the runner OS because a
+      # cache saved on one does not restore on another.
       - name: Cache the embedding model
         uses: actions/cache@v4
         with:
           path: ~/.cache/semantic-search-java
-          key: models-and-datasets-${{ hashFiles('src/main/resources/application.yml') }}
+          key: models-${{ matrix.os }}-${{ hashFiles('src/main/resources/application.yml') }}
 
       # Runs spotless, the tests and the JaCoCo coverage gate with no skip flags,
       # so every check configured in the pom is one CI enforces.
+      # bash, not the runner default. Windows defaults to PowerShell, where
+      # ./mvnw is not a command; Git Bash ships on the Windows runner and runs
+      # the same wrapper script as everywhere else.
       - name: Build with Maven
+        shell: bash
         run: ./mvnw -B clean verify
 
       # Tags on this action are v-prefixed. An unprefixed "0.36.0" is not a ref
       # that exists, so the step fails to resolve and the scan does not run.
       - name: Run security scan
+        if: matrix.os == 'ubuntu-latest'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
@@ -86,12 +99,14 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
       - name: Build Docker image
+        if: matrix.os == 'ubuntu-latest'
         run: docker build -t semantic-search-java:${{ github.sha }} .
 
       # Building proves the image assembles. This proves it runs, and with the
       # provider whose native libraries are the reason the base image is Debian
       # and not Alpine: on musl they fail to load and only this catches it.
       - name: Run the image and check it answers
+        if: matrix.os == 'ubuntu-latest'
         run: |
           # The image sets ELASTICSEARCH_STUB_ENABLED=false, because it is built
           # for the compose stack. An environment variable outranks profile YAML,
@@ -122,14 +137,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: test-results-${{ matrix.os }}
           path: target/surefire-reports
 
       - name: Save coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report
+          name: coverage-report-${{ matrix.os }}
           path: target/site/jacoco
           if-no-files-found: ignore
 
@@ -137,14 +152,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: eval-report
+          name: eval-report-${{ matrix.os }}
           path: target/eval/report.json
           if-no-files-found: ignore
 
       - name: Save build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: semantic-search-java
+          name: semantic-search-java-${{ matrix.os }}
           path: target/*.jar
 
   # Two minutes of indexing and 1,200 queries, so it runs on request rather than
@@ -170,7 +185,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/semantic-search-java
-          key: models-and-datasets-${{ hashFiles('src/main/resources/application.yml') }}
+          key: models-datasets-ubuntu-latest-${{ hashFiles('src/main/resources/application.yml') }}
 
       - name: Package
         run: ./mvnw -B clean package -DskipTests
