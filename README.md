@@ -304,6 +304,9 @@ EMBEDDING_PROVIDER=onnx java -jar target/semantic-search-java-1.0.0.jar \
   --spring.profiles.active=benchmark
 ```
 
+CI runs the same thing from the `BEIR SciFact` job, which is `workflow_dispatch`
+only, and uploads the report as an artifact.
+
 It fetches a 2.7 MB archive on first use, checked against a digest, and takes
 about two minutes end to end: 49 s to embed and index the corpus, the rest to
 answer 1,200 queries.
@@ -518,6 +521,10 @@ in-process index switched off.
 ./mvnw clean verify        # spotless, tests, and the coverage gate
 ./mvnw spotless:apply      # fix formatting
 ```
+
+`verify` runs the ONNX tests, so the first run on a clean machine downloads the
+90 MB model. The Elasticsearch tests need a Docker daemon and skip without one,
+which is the only part of the suite CI covers and a laptop might not.
 
 The frontend lives in `ui/`:
 

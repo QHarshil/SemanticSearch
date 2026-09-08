@@ -67,8 +67,8 @@ jobs:
       - name: Cache the embedding model
         uses: actions/cache@v4
         with:
-          path: ~/.cache/semantic-search-java/models
-          key: onnx-models-${{ hashFiles('src/main/resources/application.yml') }}
+          path: ~/.cache/semantic-search-java
+          key: models-and-datasets-${{ hashFiles('src/main/resources/application.yml') }}
 
       # Runs spotless, the tests and the JaCoCo coverage gate with no skip flags,
       # so every check configured in the pom is one CI enforces.
@@ -116,6 +116,47 @@ jobs:
         with:
           name: semantic-search-java
           path: target/*.jar
+
+  # Two minutes of indexing and 1,200 queries, so it runs on request rather than
+  # on every push. The report it writes is the one the README quotes, and this is
+  # how to regenerate it after a change to retrieval.
+  benchmark:
+    name: BEIR SciFact
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Cache the embedding model and the corpus
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/semantic-search-java
+          key: models-and-datasets-${{ hashFiles('src/main/resources/application.yml') }}
+
+      - name: Package
+        run: ./mvnw -B clean package -DskipTests
+
+      - name: Run the benchmark
+        env:
+          EMBEDDING_PROVIDER: onnx
+        run: |
+          java -jar target/semantic-search-java-1.0.0.jar --spring.profiles.active=benchmark
+          cat docs/benchmark-scifact.json
+
+      - name: Save the report
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-scifact
+          path: docs/benchmark-scifact.json
 
   deploy:
     name: Publish image
