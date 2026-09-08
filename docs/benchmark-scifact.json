@@ -7,34 +7,34 @@
   "dimensions" : 384,
   "vectorWeight" : 0.7,
   "rrfK" : 60,
-  "indexingSeconds" : 49,
+  "indexingSeconds" : 55,
   "runs" : [ {
     "configuration" : "bm25 only",
     "ndcgAt10" : 0.6673,
     "recallAt100" : 0.8859,
     "mrr" : 0.64,
-    "medianQueryMs" : 0.518,
-    "p95QueryMs" : 1.2554
+    "medianQueryMs" : 0.4785,
+    "p95QueryMs" : 1.1128
   }, {
     "configuration" : "vector only",
-    "ndcgAt10" : 0.644,
-    "recallAt100" : 0.9333,
-    "mrr" : 0.6057,
-    "medianQueryMs" : 11.6734,
-    "p95QueryMs" : 13.9834
+    "ndcgAt10" : 0.6497,
+    "recallAt100" : 0.9367,
+    "mrr" : 0.6156,
+    "medianQueryMs" : 12.0521,
+    "p95QueryMs" : 13.9736
   }, {
     "configuration" : "hybrid, blend",
-    "ndcgAt10" : 0.676,
-    "recallAt100" : 0.9683,
-    "mrr" : 0.6396,
-    "medianQueryMs" : 13.2715,
-    "p95QueryMs" : 14.9713
+    "ndcgAt10" : 0.6789,
+    "recallAt100" : 0.9617,
+    "mrr" : 0.6446,
+    "medianQueryMs" : 13.5573,
+    "p95QueryMs" : 15.3211
   }, {
     "configuration" : "hybrid, rrf",
-    "ndcgAt10" : 0.6848,
-    "recallAt100" : 0.9683,
-    "mrr" : 0.648,
-    "medianQueryMs" : 13.036,
-    "p95QueryMs" : 14.4582
+    "ndcgAt10" : 0.6914,
+    "recallAt100" : 0.965,
+    "mrr" : 0.6554,
+    "medianQueryMs" : 13.2633,
+    "p95QueryMs" : 15.1678
   } ]
 }

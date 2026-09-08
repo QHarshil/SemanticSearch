@@ -316,22 +316,22 @@ CI runs the same thing from the `BEIR SciFact` job, which is `workflow_dispatch`
 only, and uploads the report as an artifact.
 
 It fetches a 2.7 MB archive on first use, checked against a digest, and takes
-about two minutes end to end: 49 s to embed and index the corpus, the rest to
+about two minutes end to end: 55 s to embed and index the corpus, the rest to
 answer 1,200 queries.
 
 | | NDCG@10 | Recall@100 | MRR | median | p95 |
 | --- | --- | --- | --- | --- | --- |
-| BM25 alone | 0.667 | 0.886 | 0.640 | 0.5 ms | 1.3 ms |
-| Vector alone | 0.644 | 0.933 | 0.606 | 11.7 ms | 14.0 ms |
-| Hybrid, `blend` | 0.676 | 0.968 | 0.640 | 13.3 ms | 15.0 ms |
-| Hybrid, `rrf` | **0.685** | **0.968** | **0.648** | 13.0 ms | 14.5 ms |
+| BM25 alone | 0.667 | 0.886 | 0.640 | 0.5 ms | 1.1 ms |
+| Vector alone | 0.650 | 0.937 | 0.616 | 12.1 ms | 14.0 ms |
+| Hybrid, `blend` | 0.679 | 0.962 | 0.645 | 13.6 ms | 15.3 ms |
+| Hybrid, `rrf` | **0.691** | **0.965** | **0.655** | 13.3 ms | 15.2 ms |
 
 Table 2 of the [BEIR paper](https://arxiv.org/abs/2104.08663) reports NDCG@10 on
 this same split for six systems, so those rows can go beside these ones:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/scifact-dark.svg">
-  <img alt="NDCG@10 on BEIR SciFact. This service: hybrid with rank fusion 0.685, hybrid with the weighted blend 0.676, BM25 alone 0.667, vector alone 0.644. BEIR paper Table 2: ColBERT 0.671, BM25 0.665, GenQ 0.644, TAS-B 0.643, ANCE 0.507, DPR 0.318." src="docs/images/scifact-light.svg" width="760">
+  <img alt="NDCG@10 on BEIR SciFact. This service: hybrid with rank fusion 0.691, hybrid with the weighted blend 0.679, BM25 alone 0.667, vector alone 0.650. BEIR paper Table 2: ColBERT 0.671, BM25 0.665, GenQ 0.644, TAS-B 0.643, ANCE 0.507, DPR 0.318." src="docs/images/scifact-light.svg" width="760">
 </picture>
 
 The BM25 row lands at 0.667 against their 0.665, which is the useful part of
@@ -345,24 +345,27 @@ documents is worth.
 
 #### What passages were worth here
 
-The same four rows before documents were split into passages:
+The same code with `EMBEDDING_CHUNK_MAX_WORDS=100000`, so nothing splits and each
+document is one vector:
 
 | | NDCG@10 | Recall@100 | median |
 | --- | --- | --- | --- |
 | BM25 alone | 0.667 | 0.886 | 0.5 ms |
-| Vector alone | 0.645 | 0.925 | 7.9 ms |
-| Hybrid, `blend` | 0.673 | 0.958 | 9.6 ms |
-| Hybrid, `rrf` | 0.685 | 0.968 | 8.9 ms |
+| Vector alone | 0.645 | 0.925 | 8.7 ms |
+| Hybrid, `blend` | 0.673 | 0.958 | 10.0 ms |
+| Hybrid, `rrf` | 0.685 | 0.968 | 10.2 ms |
 
-Recall@100 goes up, by 0.8 points on the vector row and a point on the blend.
-NDCG@10 does not move, and every latency goes up by about a third along with 15 s
-of indexing. BM25 is untouched, because it reads whole documents either way.
+Passages are worth about half a point of NDCG@10 on every row that uses vectors,
+and a point of Recall@100 on the vector row. Rank fusion loses 0.3 points of
+recall and gains 0.6 of NDCG@10. They cost a third of the query latency and 18 s
+of indexing, and leave BM25 exactly where it was, since it reads whole documents
+either way.
 
 That is a smaller gain than the mechanism suggests, and the corpus explains it.
 SciFact's median abstract is 204 words against a 170-word window, so most
 documents split into two passages that overlap by 40 and largely repeat each
 other. Passages pay when a document runs well past the window; here almost
-nothing does. `ChunkedRetrievalTest` covers the case where it decides the
+nothing does. `ChunkedRetrievalTest` covers the case where they decide the
 outcome, a sentence four hundred words in that one vector for the document cannot
 reach at all.
 
