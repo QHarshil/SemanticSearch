@@ -136,6 +136,7 @@ search:
   scoring-profile: A
   recency-enabled: true
   recency-half-life-seconds: 604800
+  recency-floor: 0.7
   bm25-k1: 1.2
   bm25-b: 0.75
   metadata-boosts: {}

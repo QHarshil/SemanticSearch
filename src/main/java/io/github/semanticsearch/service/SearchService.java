@@ -127,12 +127,7 @@ public class SearchService {
         double boosted =
             ScoreCalculator.applyMetadataBoosts(
                 document, blended, searchProperties.getMetadataBoosts());
-        double withRecency =
-            ScoreCalculator.applyRecency(
-                document,
-                boosted,
-                searchProperties.isRecencyEnabled(),
-                searchProperties.getRecencyHalfLifeSeconds());
+        double withRecency = ScoreCalculator.applyRecency(document, boosted, searchProperties);
 
         // Applied here, against the score that will be reported, so a result can
         // never come back scoring below the threshold the caller asked for.

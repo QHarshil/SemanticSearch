@@ -25,6 +25,14 @@ public class SearchProperties {
   /** Enable recency decay. */
   private boolean recencyEnabled = true;
 
+  /**
+   * Smallest multiplier decay can apply, so age reorders results without removing them. An
+   * arbitrarily old document keeps this fraction of its score; a document written now keeps all of
+   * it. At 0.0 the multiplier is the raw exponential, which drives an ageing document's score
+   * towards zero and past any {@code minScore} the caller set, whatever its relevance.
+   */
+  private double recencyFloor = 0.7;
+
   /** BM25 parameters for the lexical component. */
   private double bm25K1 = 1.2;
 
@@ -79,6 +87,14 @@ public class SearchProperties {
 
   public void setRecencyEnabled(boolean recencyEnabled) {
     this.recencyEnabled = recencyEnabled;
+  }
+
+  public double getRecencyFloor() {
+    return recencyFloor;
+  }
+
+  public void setRecencyFloor(double recencyFloor) {
+    this.recencyFloor = recencyFloor;
   }
 
   public double getBm25K1() {

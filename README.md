@@ -73,9 +73,9 @@ A real response from that command, with the score shortened:
 ]
 ```
 
-Ids are generated per run, and the score carries more decimal places than shown —
-it also drifts slowly downward as the document ages, because recency decay is on
-by default with a seven-day half-life.
+Ids are generated per run, and the score carries more decimal places than shown.
+It also drifts downward as the document ages, because recency decay is on by
+default with a seven-day half-life.
 
 ## How ranking works
 
@@ -85,9 +85,9 @@ Retrieval is vector-first, then re-ranked:
    similarity, over-fetching 5× the requested number of results (capped at 200).
    Against Elasticsearch this is an approximate kNN search over the HNSW graph
    built for the `vector` field, with metadata filters applied inside it.
-2. Candidates are re-scored: the vector score is blended with a BM25 lexical
+2. Candidates are re-scored. The vector score is blended with a BM25 lexical
    score computed from corpus-wide term statistics, metadata boosts are added,
-   and recency decay is applied.
+   and the result is scaled by a recency multiplier.
 3. Results scoring below `minScore` are dropped, the list is sorted by the final
    score, and truncated to `limit`.
 
@@ -101,6 +101,25 @@ default of `0.2` is calibrated to the local embedder: over the gold set, the bes
 match for a natural-language query scores between 0.32 and 0.53, every query still
 returns something at a floor of 0.3, and none do at 0.4. A hosted model spreads
 scores differently and may want a higher floor.
+
+### Recency
+
+Age scales the final score by a multiplier that starts at 1.0 and falls towards
+`search.recency-floor` (default `0.7`), closing half the remaining gap every
+half-life (default seven days). The bound is what keeps freshness a tiebreaker.
+An unbounded exponential is down to 0.05 after a month and 2e-16 after a year, so
+every document in a corpus older than a few half-lives scores under any `minScore`
+and the service answers every query with an empty list.
+
+| Age | Bounded multiplier | Unbounded |
+| --- | --- | --- |
+| new | 1.00 | 1.00 |
+| 1 week | 0.85 | 0.50 |
+| 1 month | 0.72 | 0.05 |
+| 1 year | 0.70 | 2e-16 |
+
+Set `search.recency-floor: 0.0` for the unbounded curve, or
+`search.recency-enabled: false` to rank without age.
 
 ### Embeddings
 
