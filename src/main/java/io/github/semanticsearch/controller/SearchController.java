@@ -27,7 +27,13 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 
-/** The read side of the API. Everything here is public when authentication is on. */
+/**
+ * The read side of the API.
+ *
+ * <p>{@code GET /search} and {@code GET /search/similar} are the two public routes when
+ * authentication is on. The advanced search and the rebuild need credentials, which {@code
+ * SecurityRulesTest} pins.
+ */
 @RestController
 @RequestMapping("/api/v1/search")
 @Validated

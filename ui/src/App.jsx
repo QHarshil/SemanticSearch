@@ -12,7 +12,7 @@ import { ToastContainer } from './components/Toast';
 import './App.css';
 
 function App() {
-  // Dark by default, because the palette is: body paints --background-dark
+  // Dark by default: body paints --background-dark
   // unconditionally, so starting in light mode puts white cards and light-mode
   // text on a dark page.
   const [darkMode, setDarkMode] = useState(() => {

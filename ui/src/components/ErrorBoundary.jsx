@@ -12,18 +12,16 @@ class ErrorBoundary extends Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    // Log the error to an error reporting service
     console.error('Error caught by ErrorBoundary:', error, errorInfo);
     this.setState({ errorInfo });
   }
 
   render() {
     if (this.state.hasError) {
-      // You can render any custom fallback UI
-      return (
+        return (
         <div className="error-boundary">
           <h2>Something went wrong</h2>
-          <p>We apologize for the inconvenience. Please try refreshing the page or contact support if the problem persists.</p>
+          <p>Refresh the page. The details below name the component that threw.</p>
           <details>
             <summary>Error Details</summary>
             <p>{this.state.error && this.state.error.toString()}</p>

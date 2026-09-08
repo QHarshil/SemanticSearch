@@ -28,12 +28,12 @@ public class OpenApiConfig {
     return new OpenAPI()
         .components(
             new Components()
+                // HTTP basic, which is what SecurityConfig actually enforces. A
+                // bearer/JWT scheme here would have the published document
+                // describe an authentication method the service does not accept.
                 .addSecuritySchemes(
-                    "bearer-key",
-                    new SecurityScheme()
-                        .type(SecurityScheme.Type.HTTP)
-                        .scheme("bearer")
-                        .bearerFormat("JWT")))
+                    "basic-auth",
+                    new SecurityScheme().type(SecurityScheme.Type.HTTP).scheme("basic")))
         .info(
             new Info()
                 .title(applicationName)

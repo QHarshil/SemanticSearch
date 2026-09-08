@@ -7,22 +7,24 @@ const AboutPage = () => {
         <h2>Overview</h2>
         <p>
           A document search service built with Java and Spring Boot. Documents
-          are embedded into vectors and retrieved by cosine similarity, then
-          re-ranked with lexical and freshness signals before being returned.
+          are split into overlapping passages and embedded. Every query runs
+          twice, once against those vectors and once against a BM25 inverted
+          index, and the two rankings are combined.
         </p>
         <p>
-          Embeddings come from a pluggable provider. By default the service uses
-          a built-in local embedder so it runs with no API key; set an OpenAI key
-          to use a hosted model instead.
+          Three embedding providers. The default is a lexical feature-hashing
+          model that needs nothing at all. Set EMBEDDING_PROVIDER=onnx to run
+          all-MiniLM-L6-v2 in the same process and match on meaning without an
+          API key, or openai to call a hosted model.
         </p>
       </section>
 
       <section className="about-section">
         <h2>Ranking</h2>
         <p>
-          Retrieval is vector-first: the index returns nearest neighbours for the
-          query vector. Those candidates are then re-scored, so lexical matching
-          and boosts refine the ordering rather than widening recall.
+          Both retrievers run over the whole corpus and their candidates are
+          unioned, so a document the words point at is found even when its
+          embedding sits nowhere near the query. The union is then re-scored.
         </p>
         <ul>
           <li>Vector similarity (cosine) for candidate retrieval</li>

@@ -27,7 +27,7 @@ public class SearchRequest {
    * dropping the weakly matching tail. It takes those queries from 64 results to 22.
    *
    * <p>Another embedding model spreads scores differently. Under the ONNX provider the same queries
-   * top out between 0.37 and 0.64, and a floor set for one model is not a floor for another.
+   * top out between 0.37 and 0.64, so the default needs recalibrating when the provider changes.
    */
   public static final double DEFAULT_MIN_SCORE = 0.2;
 

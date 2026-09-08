@@ -8,8 +8,11 @@ import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.scheduling.annotation.EnableAsync;
 
 /**
- * Main application class for the Semantic Search service. Enables Spring Boot auto-configuration,
- * JPA auditing, caching, and async processing.
+ * The application.
+ *
+ * <p>{@code @ConfigurationPropertiesScan} is what registers {@code SearchProperties}, {@code
+ * OnnxProperties} and {@code BenchmarkProperties}. None of them is a bean on its own, so without
+ * the scan every value silently falls back to its field initialiser.
  */
 @SpringBootApplication
 @EnableJpaAuditing

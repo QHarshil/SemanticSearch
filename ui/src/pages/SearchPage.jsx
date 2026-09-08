@@ -17,10 +17,11 @@ const SearchPage = () => {
     <div className="search-page">
       <h1 className="page-title">Search</h1>
       <p className="page-description">
-        Queries are embedded and matched against document vectors, then re-ranked with
-        BM25 lexical scoring, metadata boosts and recency decay. The default embedder
-        runs locally and matches on shared words and word fragments; set an OpenAI key
-        to retrieve on meaning instead.
+        Queries are matched against document passages by vector similarity and against
+        an inverted index by BM25, and the two rankings are combined and re-scored with
+        metadata boosts and recency. The default embedder matches on shared words and
+        word fragments; EMBEDDING_PROVIDER=onnx matches on meaning, in process and with
+        no API key.
       </p>
       
       {isLoading ? (

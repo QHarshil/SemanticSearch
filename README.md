@@ -4,15 +4,15 @@ A hybrid document search service built with Java and Spring Boot. Every query is
 retrieved twice, once by vector similarity and once by BM25 over an inverted
 index, and the two rankings are combined and re-scored with metadata boosts and
 recency. A built-in eval harness reports MRR, NDCG@k and Recall@k, so a ranking
-change is a measurement instead of an opinion.
+change can be measured.
 
 A React UI is compiled into the jar and served at `/`.
 
 ![Search results for a paraphrased query, served by the demo profile](docs/images/search.png)
 
 Above is the `demo` profile answering `keeping p95 response time low`, a query
-that shares only the token `p95` with the document it retrieves. The score shown
-is the blended one described below.
+that shares only the token `p95` with the document at the top of its results. The
+score shown is the blended one described below.
 
 ## Architecture
 
@@ -37,8 +37,8 @@ flowchart LR
 ```
 
 Writes go the other way, through `DocumentService`. It hashes, dedupes, persists,
-embeds, upserts into the vector index under the document id, then drops the
-search cache and the lexical index. Rebuilding the postings on the next query
+embeds, upserts each passage into the vector index under its own id, then drops
+the search cache and the lexical index. Rebuilding the postings on the next query
 costs a pass over the corpus, which is the price of BM25 statistics that are
 corpus-wide.
 
@@ -100,10 +100,12 @@ Two retrievers run over the whole corpus, and their rankings are combined:
 
 1. The query is embedded and the index returns the nearest passages by cosine
    similarity, then collapses them to documents keeping each document's best
-   passage. It over-fetches 5× the requested number of results (capped at 200)
-   and four passages per result on top of that. Against Elasticsearch this is an
-   approximate kNN search over the HNSW graph built for the `vector` field, with
-   metadata filters applied inside it.
+   passage. `SearchService` asks for 5× the requested number of results, capped
+   at 200. Against Elasticsearch that is an approximate kNN search over the HNSW
+   graph built for the `vector` field, with metadata filters applied inside it,
+   and it fetches four passages per requested result, widening to sixteen if the
+   first fetch comes back full and still collapses to too few documents. The
+   in-process index scores every stored passage and needs no over-fetch.
 2. `LexicalIndex` ranks the corpus by BM25 over an in-memory inverted index,
    over-fetching the same number. The two retrievals run one after the other on
    the request thread.
@@ -115,10 +117,9 @@ Two retrievers run over the whole corpus, and their rankings are combined:
 5. Results scoring below `minScore` are dropped, the list is sorted by the final
    score, and truncated to `limit`.
 
-Retrieving lexically is what makes the words a way in. A document whose terms
-match the query exactly but whose embedding sits outside the vector
-neighbourhood is found by step 2; scoring only the kNN candidates would leave it
-unreachable at any weight.
+A document whose terms match the query exactly but whose embedding sits outside
+the vector neighbourhood is found by step 2. Scoring only the kNN candidates
+would leave it unreachable at any weight.
 
 ### Fusion
 
@@ -157,8 +158,8 @@ queries the best match scores between 0.32 and 0.53; raising the floor to 0.3
 still answers all eight, and 0.4 answers only three. The default sits below that
 edge while cutting the weak tail, taking those queries from 64 results to 22.
 Under `onnx` the same queries score 0.37 to 0.64, so the default leaves more
-headroom there. Any other model spreads scores differently, and a floor set for
-one is not a floor for another.
+headroom there. Any other model spreads scores differently, so this default needs
+recalibrating when the provider changes.
 
 ### Recency
 
@@ -302,9 +303,8 @@ general.
 
 ### SciFact
 
-Eight queries cannot say whether the ranking is good. This can. `BeirBenchmark`
-indexes [BEIR](https://github.com/beir-cellar/beir)/SciFact, 5,183 abstracts and
-300 judged queries, scores retrieval four ways and writes
+`BeirBenchmark` indexes [BEIR](https://github.com/beir-cellar/beir)/SciFact,
+5,183 abstracts and 300 judged queries, scores retrieval four ways and writes
 [`docs/benchmark-scifact.json`](docs/benchmark-scifact.json):
 
 ```bash
@@ -316,8 +316,8 @@ CI runs the same thing from the `BEIR SciFact` job, which is `workflow_dispatch`
 only, and uploads the report as an artifact.
 
 It fetches a 2.7 MB archive on first use, checked against a digest, and takes
-about two minutes end to end: 55 s to embed and index the corpus, the rest to
-answer 1,200 queries.
+about a minute and a half end to end: 55 s to embed and index the corpus, the
+rest to answer 1,200 queries.
 
 | | NDCG@10 | Recall@100 | MRR | median | p95 |
 | --- | --- | --- | --- | --- | --- |
@@ -337,11 +337,10 @@ this same split for six systems, so those rows can go beside these ones:
 The BM25 row lands at 0.667 against their 0.665, which is the useful part of
 running a published benchmark: the lexical retriever here is reproducing a number
 computed by a different implementation, so the numbers beside it can be read as
-measurements and not as claims.
+measurements.
 
 Rank fusion is the configuration that beats every model in that table. It is also
-the one the eight-query gold set says is worse, which is what a corpus of eight
-documents is worth.
+the configuration the eight-query gold set ranks below the blend.
 
 #### What passages were worth here
 
@@ -391,7 +390,7 @@ measurement here.
 | `ranking` ≈ `ranked` | 0.26 | 0.82 | yes |
 | `car` ≈ `automobile` | **-0.12** | 0.86 | yes |
 | `car` ≈ `banana` | -0.21 | 0.39 | |
-| Added latency per uncached query | none | 1.4 ms | a network round trip |
+| Added latency per uncached query | none | 2 ms | a network round trip |
 | Runs offline | yes | yes | no |
 | Determinism | exact | exact | model-version dependent |
 | MRR on the gold set | 0.615 | 0.938 | not measured here |
@@ -443,7 +442,7 @@ search_stage_seconds{stage="hydrate"}
 search_results
 ```
 
-Each is a histogram with percentiles, tagged with the application name and the
+Both are histograms with percentiles, tagged with the application name and the
 active profile. `search_results` records how many results each query returned,
 which is where a `minScore` set too high shows up first.
 
@@ -493,7 +492,7 @@ not a bare array.
 | `EMBEDDING_DIMENSIONS` | Vector width for `hashing` and `openai`; also the index mapping. `onnx` reports its own. | `256` |
 | `EMBEDDING_API_KEY` | Required by the `openai` provider | none |
 | `EMBEDDING_MODEL` | Hosted model name | `text-embedding-3-small` |
-| `EMBEDDING_CHUNK_MAX_WORDS` | Words of content per passage | `170` |
+| `EMBEDDING_CHUNK_MAX_WORDS` | Words per passage, counting the repeated title | `170` |
 | `EMBEDDING_CHUNK_OVERLAP_WORDS` | Words each passage repeats from the one before | `40` |
 | `EMBEDDING_ONNX_MODEL_DIR` | Where the ONNX model is cached | `~/.cache/semantic-search-java/models/all-MiniLM-L6-v2` |
 | `EMBEDDING_ONNX_AUTO_DOWNLOAD` | Fetch the model when it is not cached | `true` |
@@ -590,7 +589,7 @@ Notable pieces:
 | `SearchService.search` | retrieve twice, fuse, re-score, truncate |
 | `LexicalIndex` | the inverted index, BM25 retrieval and BM25 scoring |
 | `ScoreCalculator` | blending, rank fusion, metadata boosts, recency |
-| `DocumentService` | the write path, and the only place that drops the lexical index |
+| `DocumentService` | the write path; it and `IndexService` are what drop the lexical index |
 | `RankingMetrics` | MRR, NDCG@k and Recall@k, shared by both eval paths |
 | `EvalService` | the curated gold set |
 | `BeirBenchmark` | the SciFact run |
@@ -609,17 +608,17 @@ Notable pieces:
   postings sit on the heap. For a large corpus, push lexical retrieval into
   Elasticsearch, which maintains an inverted index natively and can combine the
   two rankings itself.
-- Metadata filters reach the vector retriever, which applies them inside the kNN
-  search, but not the lexical one, where they are applied to its output. A
-  heavily filtered query can therefore draw fewer lexical candidates than it
-  asked for.
+- Only the Elasticsearch retriever pre-filters. The in-process index and the
+  lexical index both ignore metadata filters and have them applied to their
+  output, so a heavily filtered query draws fewer candidates than it asked for
+  and can return less than `limit`.
 - `minScore` is calibrated against blended scores. Under `rrf` a document found
   by one retriever alone caps at 0.5 whatever its similarity, so the same floor
   filters differently.
 - PostgreSQL and the search index are written in one database transaction but
   share no transaction of their own. An index write that succeeds before a failed
   commit leaves a vector with no row; index writes are upserts keyed on the
-  document id, so `reconcileUnindexed` and a rebuild both repair it. A durable
+  passage id, so `reconcileUnindexed` and a rebuild both repair it. A durable
   outbox would close the window properly.
 - Against a real Elasticsearch, a newly created document becomes searchable at the
   next index refresh (a second by default) rather than immediately.

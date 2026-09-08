@@ -25,7 +25,6 @@ const SearchForm = () => {
   const [searchHistory, setSearchHistory] = useState([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Load search history from localStorage on component mount
   useEffect(() => {
     const savedHistory = localStorage.getItem('searchHistory');
     if (savedHistory) {
@@ -37,7 +36,6 @@ const SearchForm = () => {
     }
   }, []);
 
-  // Save search history to localStorage when it changes
   useEffect(() => {
     if (searchHistory.length > 0) {
       localStorage.setItem('searchHistory', JSON.stringify(searchHistory));
@@ -58,7 +56,7 @@ const SearchForm = () => {
       if (data.length === 0) {
         showInfoToast('No results found for your query');
       } else {
-        showSuccessToast(`Found ${data.length} results`);
+        showSuccessToast(`Found ${data.length} result${data.length === 1 ? '' : 's'}`);
       }
     } catch (err) {
       setError(`Failed to perform search: ${err.message}`);

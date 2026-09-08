@@ -154,7 +154,7 @@ public class InMemoryDocumentRepository implements DocumentRepository {
 
   @Override
   public List<Document> findAll(Sort sort) {
-    // Sorting is not critical for these tests; return unsorted list.
+    // No test depends on sort order.
     return findAll();
   }
 

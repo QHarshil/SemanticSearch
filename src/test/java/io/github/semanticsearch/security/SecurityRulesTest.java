@@ -89,8 +89,8 @@ class SecurityRulesTest {
 
   @Test
   void theBundledUiIsBehindAuthenticationWhenAuthenticationIsOn() throws Exception {
-    // Documented so it is a decision rather than a surprise. Basic auth sends a
-    // challenge, so a browser prompts and then loads the page.
+    // The bundled UI sits behind the same basic auth as the write endpoints.
+    // Basic auth sends a challenge, so a browser prompts and then loads the page.
     mockMvc.perform(get("/")).andExpect(status().isUnauthorized());
     mockMvc.perform(get("/").with(ADMIN)).andExpect(status().isOk());
   }

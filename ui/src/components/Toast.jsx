@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
-// Toast component for notifications
 const Toast = ({ message, type, onClose }) => {
   const toastClasses = `toast toast-${type}`;
   
@@ -23,22 +22,19 @@ const Toast = ({ message, type, onClose }) => {
   );
 };
 
-// Toast container to manage multiple toasts
 export const ToastContainer = () => {
   const [toasts, setToasts] = useState([]);
   const toastRoot = useRef(null);
   
   useEffect(() => {
-    // Create toast root if it doesn't exist
-    if (!toastRoot.current) {
+        if (!toastRoot.current) {
       const div = document.createElement('div');
       div.className = 'toast-container';
       document.body.appendChild(div);
       toastRoot.current = div;
     }
     
-    // Set up global toast event listener
-    const handleToast = (event) => {
+        const handleToast = (event) => {
       const { message, type = 'info' } = event.detail;
       addToast(message, type);
     };

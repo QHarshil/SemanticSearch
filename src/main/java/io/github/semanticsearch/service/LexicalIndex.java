@@ -33,10 +33,10 @@ import io.github.semanticsearch.util.ScoreCalculator;
  * from the handful of documents a vector search returned would compute it over a sample of ten,
  * where a term appearing in every candidate looks rare or common essentially at random.
  *
- * <p>The postings live in memory and are rebuilt from the repository when the corpus changes size.
- * That suits the corpus sizes this service targets and not much beyond them. For a large corpus,
- * push lexical retrieval into Elasticsearch, which maintains an inverted index natively and can
- * combine the two rankings itself.
+ * <p>The postings live in memory and are rebuilt from the repository on the first query after any
+ * write. That suits the corpus sizes this service targets and not much beyond them. For a large
+ * corpus, push lexical retrieval into Elasticsearch, which maintains an inverted index natively and
+ * can combine the two rankings itself.
  */
 @Service
 public class LexicalIndex {
@@ -60,12 +60,10 @@ public class LexicalIndex {
   /**
    * The current index, rebuilt on the first query after any invalidation.
    *
-   * <p>Freshness is the writer's responsibility and nothing else's. Rebuilding when the row count
-   * has moved looks like a free safety net and is not one: a delete followed by a create restores
-   * the count while the postings still name the removed document and omit the new one, so the query
-   * that finds the deleted document is the same query that cannot find its replacement. A check
-   * that holds in most cases is worse than no check, because it stops anyone looking for the one
-   * that does not.
+   * <p>Freshness is the writer's responsibility. Rebuilding when the row count has moved does not
+   * catch every change: a delete followed by a create restores the count while the postings still
+   * name the removed document and omit the new one, so the query that finds the deleted document is
+   * the same query that cannot find its replacement.
    */
   public Snapshot current() {
     Snapshot existing = snapshot.get();

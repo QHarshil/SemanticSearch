@@ -91,9 +91,9 @@ class EvalServiceIntegrationTest {
   void almostEveryGoldQueryRetrievesItsDocument() {
     EvalService.EvalResult result = evalService.runCuratedEval(5);
 
-    // Counted per query rather than averaged: several queries degrading a little
-    // and one failing outright produce a similar mean, but mean very different
-    // things.
+    // Counted per query, not averaged. Several queries degrading a little and one
+    // failing outright can produce the same mean, and only the per-query count
+    // separates them.
     long queriesWithAHit = result.details().stream().filter(q -> q.recall() > 0.0).count();
     String misses =
         result.details().stream()

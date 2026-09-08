@@ -38,7 +38,7 @@ public final class Chunker {
   private final int overlapWords;
 
   /**
-   * @param maxWords words of content per passage, before the title is prepended
+   * @param maxWords words per passage, counting the title repeated at its head
    * @param overlapWords words each passage repeats from the end of the one before
    */
   public Chunker(int maxWords, int overlapWords) {

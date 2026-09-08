@@ -210,12 +210,10 @@ public class SearchService {
    *
    * <p>Under a semantic embedder, matching on meaning without sharing a word is the expected case,
    * so a document holding none of the query's terms must not be scored as a lexical miss. Handing
-   * it the vector score in place of a missing lexical one does that, and creates a worse problem: a
-   * document holding one common query term scores below a document holding none of them, because a
-   * low BM25 value drags the blend down while an absent one cannot. The floor removes the step.
-   * Measured on SciFact it is worth nothing and costs nothing, NDCG@10 0.6732 either way, which is
-   * the point: it fixes an ordering that was indefensible to explain, not one that showed up in the
-   * metrics.
+   * it the vector score in place of a missing lexical one does that, and creates a second problem.
+   * A document holding one common query term then scores below a document holding none of them,
+   * because a low BM25 value drags the blend down while an absent one cannot. The floor removes
+   * that step. On SciFact it changes nothing, NDCG@10 0.6732 with the floor and without it.
    */
   private double blended(
       UUID documentId, Map<UUID, Double> vectorScores, Map<UUID, Double> lexicalScores) {

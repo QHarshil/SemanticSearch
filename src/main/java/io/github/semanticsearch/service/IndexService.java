@@ -591,7 +591,7 @@ public class IndexService {
    * Collapses passage scores to documents, keeping each document's best passage.
    *
    * <p>Summing would rank a long document above a better short one for holding more passages that
-   * mention the query at all, which is length bias with extra steps.
+   * mention the query at all, which is length bias.
    */
   private static List<Map.Entry<UUID, Double>> topDocuments(Map<UUID, Double> best, int limit) {
     List<Map.Entry<UUID, Double>> ranked = new ArrayList<>();

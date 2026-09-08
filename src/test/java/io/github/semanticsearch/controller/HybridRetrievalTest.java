@@ -126,8 +126,8 @@ class HybridRetrievalTest {
   void theWeightedBlendCannotSurfaceALexicalOnlyMatchHere() throws Exception {
     // Not a defect, and worth pinning so the trade-off between the two methods
     // stays visible. The blend caps a document with no vector similarity at the
-    // lexical weight, 0.3 at the defaults, while every one of the 24 decoys is a
-    // close vector match and keeps around 0.75. No BM25 score can clear that.
+    // lexical weight, 0.3 at the defaults, while every decoy is a close vector
+    // match and keeps around 0.75. No BM25 score can clear that.
     //
     // Reciprocal rank fusion reads positions instead, so rank 1 on the lexical
     // list stands beside rank 1 on the vector list, which is the whole reason to

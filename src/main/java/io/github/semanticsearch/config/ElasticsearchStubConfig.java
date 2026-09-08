@@ -12,8 +12,8 @@ import co.elastic.clients.transport.Endpoint;
 import co.elastic.clients.transport.TransportOptions;
 
 /**
- * Provides a lightweight stub Elasticsearch client when {@code elasticsearch.stub-enabled=true}.
- * This satisfies dependency injection while IndexService routes to its in-memory fallback.
+ * Provides a stub Elasticsearch client when {@code elasticsearch.stub-enabled=true}. This satisfies
+ * dependency injection while IndexService routes to its in-memory fallback.
  */
 @Configuration
 @ConditionalOnProperty(name = "elasticsearch.stub-enabled", havingValue = "true")

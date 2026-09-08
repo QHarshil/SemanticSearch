@@ -73,8 +73,8 @@ public class DocumentService {
   /**
    * Create the document unless its content is already stored.
    *
-   * <p>Separate from {@link #create} so that callers expected to re-run over the same input -
-   * seeding and fixture setup, need not drive control flow with an exception. A {@link
+   * <p>Separate from {@link #create} so that callers expected to re-run over the same input
+   * (seeding and fixture setup) need not drive control flow with an exception. A {@link
    * DuplicateContentException} thrown inside a transaction marks it rollback-only even if the
    * caller catches it, which would abort the rest of the batch.
    *

@@ -37,6 +37,7 @@ public class SearchMetrics {
     }
     DistributionSummary.builder(RESULTS_SUMMARY)
         .description("Results returned per search")
+        .publishPercentileHistogram()
         .register(registry);
   }
 
@@ -59,7 +60,10 @@ public class SearchMetrics {
   }
 
   public void recordResults(int count) {
-    registry.summary(RESULTS_SUMMARY).record(count);
+    DistributionSummary.builder(RESULTS_SUMMARY)
+        .publishPercentileHistogram()
+        .register(registry)
+        .record(count);
   }
 
   private Timer timer(Stage stage) {

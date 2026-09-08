@@ -114,8 +114,9 @@ class ChunkedRetrievalTest {
     int before = longDocument.getPassageCount();
     assertTrue(before > 1);
 
-    // Half a write is worse than none. The first passages would hold the new text
-    // and the rest the old, under one id, with nothing recording the disagreement.
+    // A write that stops partway would leave the first passages holding the new
+    // text and the rest the old, under one id, with nothing recording that the
+    // two disagree.
     Document broken = new Document();
     broken.setTitle(TITLE);
     broken.setContent("");
