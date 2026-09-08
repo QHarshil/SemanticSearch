@@ -172,7 +172,7 @@ class IndexServiceTest {
   void deletingAVectorRemovesItFromResults() {
     Document indexed = index("Doc One", "Semantic vector search over documents.");
 
-    assertTrue(indexService.deleteDocumentVector(indexed.getVectorId()));
+    assertTrue(indexService.deleteDocumentVectors(indexed));
 
     assertTrue(search("semantic vector search", 5, 0.0).isEmpty());
   }
@@ -184,8 +184,8 @@ class IndexServiceTest {
 
     // Drop both vectors while leaving the rows alone, which is what a re-created
     // or lost index looks like from the database side.
-    indexService.deleteDocumentVector(first.getVectorId());
-    indexService.deleteDocumentVector(second.getVectorId());
+    indexService.deleteDocumentVectors(first);
+    indexService.deleteDocumentVectors(second);
     assertTrue(
         search("retrieval ranking", 5, 0.0).isEmpty(), "the index should be empty at this point");
 

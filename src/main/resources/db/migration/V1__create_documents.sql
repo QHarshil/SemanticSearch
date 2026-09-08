@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS documents (
     content_hash VARCHAR(255) NOT NULL UNIQUE,
     vector_id VARCHAR(255),
     indexed BOOLEAN NOT NULL DEFAULT FALSE,
+    passage_count INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

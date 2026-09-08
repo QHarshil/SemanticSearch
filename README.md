@@ -25,8 +25,8 @@ flowchart LR
     EM --> ON[OnnxEmbedder<br/>all-MiniLM-L6-v2, local]
     EM --> OA[OpenAI<br/>text-embedding-3-*]
     EM -.->|cached by<br/>provider/model/width + text| RD[(Redis)]
-    S -->|kNN, metadata pre-filter<br/>5x the requested limit| IX[IndexService]
-    IX --> ES[(Elasticsearch<br/>dense_vector, HNSW)]
+    S -->|kNN over passages, metadata<br/>pre-filter, best passage per document| IX[IndexService]
+    IX --> ES[(Elasticsearch<br/>dense_vector, HNSW<br/>one entry per passage)]
     IX --> MM[(In-memory index<br/>default)]
     S -->|BM25 over the whole corpus<br/>5x the requested limit| LX[LexicalIndex<br/>inverted index]
     LX -.->|rebuilt from the corpus<br/>after any write| PG[(PostgreSQL)]
@@ -98,10 +98,12 @@ default with a seven-day half-life.
 
 Two retrievers run over the whole corpus, and their rankings are combined:
 
-1. The query is embedded and the index returns nearest neighbours by cosine
-   similarity, over-fetching 5× the requested number of results (capped at 200).
-   Against Elasticsearch this is an approximate kNN search over the HNSW graph
-   built for the `vector` field, with metadata filters applied inside it.
+1. The query is embedded and the index returns the nearest passages by cosine
+   similarity, then collapses them to documents keeping each document's best
+   passage. It over-fetches 5× the requested number of results (capped at 200)
+   and four passages per result on top of that. Against Elasticsearch this is an
+   approximate kNN search over the HNSW graph built for the `vector` field, with
+   metadata filters applied inside it.
 2. `LexicalIndex` ranks the corpus by BM25 over an in-memory inverted index,
    over-fetching the same number. The two retrievals run one after the other on
    the request thread.
@@ -176,6 +178,30 @@ and the service answers every query with an empty list.
 
 Set `search.recency-floor: 0.0` for the unbounded curve, or
 `search.recency-enabled: false` to rank without age.
+
+### Passages
+
+A document is split into overlapping windows of `embedding.chunk.max-words`
+(default 170) with `embedding.chunk.overlap-words` (default 40) repeated between
+them, and each window is embedded and indexed on its own. Retrieval scores
+passages and keeps each document's best one.
+
+The window is set against the ONNX provider's 256 word pieces, roughly 190
+English words. One vector for a longer document is a vector for its opening:
+everything past the window is text the model never read, so a document can hold
+the exact answer and still be unreachable by meaning. Averaging hurts inside the
+window too, because a document covering three subjects lands between all three
+and close to none.
+
+Overlap exists so a boundary cannot fall through the middle of the one sentence
+that answers a query and leave both halves too weak to retrieve. The title is
+repeated at the head of every passage, since a window from the middle of a long
+document otherwise arrives with nothing saying what it belongs to.
+
+A document shorter than the window is one passage holding exactly the text it
+would have been indexed with anyway, so a corpus of short documents is unchanged.
+`Document.passageCount` records the split, which is what lets an edit that
+shortens a document delete precisely the passages it no longer has.
 
 ### Embeddings
 
@@ -279,15 +305,15 @@ EMBEDDING_PROVIDER=onnx java -jar target/semantic-search-java-1.0.0.jar \
 ```
 
 It fetches a 2.7 MB archive on first use, checked against a digest, and takes
-about two minutes end to end: 34 s to embed and index the corpus, the rest to
+about two minutes end to end: 49 s to embed and index the corpus, the rest to
 answer 1,200 queries.
 
 | | NDCG@10 | Recall@100 | MRR | median | p95 |
 | --- | --- | --- | --- | --- | --- |
-| BM25 alone | 0.667 | 0.886 | 0.640 | 0.5 ms | 1.2 ms |
-| Vector alone | 0.645 | 0.925 | 0.611 | 7.9 ms | 10.3 ms |
-| Hybrid, `blend` | 0.673 | 0.958 | 0.637 | 9.6 ms | 12.5 ms |
-| Hybrid, `rrf` | **0.685** | **0.968** | **0.654** | 8.9 ms | 10.2 ms |
+| BM25 alone | 0.667 | 0.886 | 0.640 | 0.5 ms | 1.3 ms |
+| Vector alone | 0.644 | 0.933 | 0.606 | 11.7 ms | 14.0 ms |
+| Hybrid, `blend` | 0.676 | 0.968 | 0.640 | 13.3 ms | 15.0 ms |
+| Hybrid, `rrf` | **0.685** | **0.968** | **0.648** | 13.0 ms | 14.5 ms |
 
 Table 2 of the [BEIR paper](https://arxiv.org/abs/2104.08663) reports NDCG@10 on
 this same split: BM25 0.665, TAS-B 0.643, GenQ 0.644, ColBERT 0.671, ANCE 0.507,
@@ -300,12 +326,34 @@ Rank fusion is the configuration that beats every model in that table. It is als
 the one the eight-query gold set says is worse, which is what a corpus of eight
 documents is worth.
 
-Read with these caveats. The BM25 is this repository's, not Anserini's, and the
-tokenizer and stop-word list differ. The dense row is all-MiniLM-L6-v2, which is
-not in that table. SciFact's median abstract is 204 words and the embedder
-truncates at 256 word pieces, so the vector row is measured on documents it can
-only partly see; chunking would raise it. Each row is a single run on a laptop,
-with no significance testing.
+#### What passages were worth here
+
+The same four rows before documents were split into passages:
+
+| | NDCG@10 | Recall@100 | median |
+| --- | --- | --- | --- |
+| BM25 alone | 0.667 | 0.886 | 0.5 ms |
+| Vector alone | 0.645 | 0.925 | 7.9 ms |
+| Hybrid, `blend` | 0.673 | 0.958 | 9.6 ms |
+| Hybrid, `rrf` | 0.685 | 0.968 | 8.9 ms |
+
+Recall@100 goes up, by 0.8 points on the vector row and a point on the blend.
+NDCG@10 does not move, and every latency goes up by about a third along with 15 s
+of indexing. BM25 is untouched, because it reads whole documents either way.
+
+That is a smaller gain than the mechanism suggests, and the corpus explains it.
+SciFact's median abstract is 204 words against a 170-word window, so most
+documents split into two passages that overlap by 40 and largely repeat each
+other. Passages pay when a document runs well past the window; here almost
+nothing does. `ChunkedRetrievalTest` covers the case where it decides the
+outcome, a sentence four hundred words in that one vector for the document cannot
+reach at all.
+
+#### Caveats
+
+The BM25 is this repository's, not Anserini's, and the tokenizer and stop-word
+list differ. The dense row is all-MiniLM-L6-v2, which is not in that table. Each
+row is a single run on a laptop, with no significance testing.
 
 ### Choosing a provider
 
@@ -336,14 +384,14 @@ from `curl` on the same machine:
 
 | | median | p95 |
 | --- | --- | --- |
-| `hashing`, warm cache, 30 requests over 6 repeated queries | 1.5 ms | 2.3 ms |
-| `onnx`, warm cache, 30 requests over 6 repeated queries | 2.5 ms | 2.7 ms |
-| `hashing`, 50 queries each seen once | 2.6 ms | 3.3 ms |
-| `onnx`, 50 queries each seen once | 4.8 ms | 5.4 ms |
+| `hashing`, warm cache, 30 requests over 6 repeated queries | 2.1 ms | 2.5 ms |
+| `onnx`, warm cache, 30 requests over 6 repeated queries | 2.0 ms | 2.5 ms |
+| `hashing`, 50 queries each seen once | 3.4 ms | 4.5 ms |
+| `onnx`, 50 queries each seen once | 5.4 ms | 6.3 ms |
 
-The gap between the two cold rows, about 2 ms, is what running the transformer
-costs. It shows up in the warm rows too, because the result cache is keyed on the
-whole request and six repeated queries still miss it the first time round.
+The warm rows are the same for both providers, because a cache hit returns before
+anything is embedded. The gap between the two cold rows, about 2 ms, is what
+running the transformer costs.
 
 These describe an eight-document in-process index, so treat them as a floor for
 pipeline overhead and not as a throughput result. The per-configuration timings
@@ -418,6 +466,8 @@ not a bare array.
 | `EMBEDDING_DIMENSIONS` | Vector width for `hashing` and `openai`; also the index mapping. `onnx` reports its own. | `256` |
 | `EMBEDDING_API_KEY` | Required by the `openai` provider | none |
 | `EMBEDDING_MODEL` | Hosted model name | `text-embedding-3-small` |
+| `EMBEDDING_CHUNK_MAX_WORDS` | Words of content per passage | `170` |
+| `EMBEDDING_CHUNK_OVERLAP_WORDS` | Words each passage repeats from the one before | `40` |
 | `EMBEDDING_ONNX_MODEL_DIR` | Where the ONNX model is cached | `~/.cache/semantic-search-java/models/all-MiniLM-L6-v2` |
 | `EMBEDDING_ONNX_AUTO_DOWNLOAD` | Fetch the model when it is not cached | `true` |
 | `EMBEDDING_API_BASE_URL` | Hosted provider endpoint | `https://api.openai.com` |
@@ -504,6 +554,7 @@ Notable pieces:
 | | |
 | --- | --- |
 | `TextEmbedder` | the interface behind `HashingEmbedder` and `OnnxEmbedder` |
+| `Chunker` | splits a document into overlapping passages |
 | `VerifiedFileCache` | fetches large files and checks them against a digest |
 | `SearchService.search` | retrieve twice, fuse, re-score, truncate |
 | `LexicalIndex` | the inverted index, BM25 retrieval and BM25 scoring |
@@ -519,10 +570,6 @@ Notable pieces:
 - The default embedder is lexical, so synonyms do not match under the default
   configuration.
   `EMBEDDING_PROVIDER=onnx` fixes that at the cost of a model download.
-- The ONNX provider embeds a whole document as one vector. A long document with
-  several unrelated sections averages into a vector that represents none of them,
-  and the 256-token window drops everything past roughly the first two hundred
-  words. Passage-level chunking is the fix.
 - The inverted index is held in memory and rebuilt from the repository whenever
   the corpus changes size, so lexical retrieval costs a full rescan per write and
   the postings sit on the heap. For a large corpus, push lexical retrieval into
@@ -544,8 +591,12 @@ Notable pieces:
   next index refresh (a second by default) rather than immediately.
 - The curated set is eight queries with one relevant document each. It guards
   against regressions; the SciFact run is what measures ranking quality.
+- Passages are fixed-width word windows. They ignore sentence and paragraph
+  boundaries, so a window can open mid-sentence; the overlap is what stops that
+  losing the sentence entirely.
 - Persistence entities double as API request and response bodies, so responses
-  carry internal fields such as `vectorId`, `contentHash` and `indexed`.
+  carry internal fields such as `vectorId`, `contentHash`, `indexed` and
+  `passageCount`.
 - Schema is managed by Hibernate `ddl-auto`; Flyway is present but disabled.
 
 ## License

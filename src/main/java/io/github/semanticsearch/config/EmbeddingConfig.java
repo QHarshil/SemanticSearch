@@ -8,6 +8,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import io.github.semanticsearch.service.Chunker;
 import io.github.semanticsearch.service.HashingEmbedder;
 import io.github.semanticsearch.service.OnnxEmbedder;
 import io.github.semanticsearch.service.OpenAiEmbeddingClient;
@@ -64,6 +65,21 @@ public class EmbeddingConfig {
     String name = modelId.substring(modelId.lastIndexOf('/') + 1);
     return Path.of(
         System.getProperty("user.home"), ".cache", "semantic-search-java", "models", name);
+  }
+
+  /**
+   * Splits documents into passages before they are embedded.
+   *
+   * <p>The default window is chosen against the ONNX provider's 256 word pieces, which is roughly
+   * 190 English words. A window that overran it would produce vectors for text the model never
+   * read. The other providers have no window of their own, and splitting a long document is the
+   * right thing for them too, so this applies to all three.
+   */
+  @Bean
+  public Chunker chunker(
+      @Value("${embedding.chunk.max-words:170}") int maxWords,
+      @Value("${embedding.chunk.overlap-words:40}") int overlapWords) {
+    return new Chunker(maxWords, overlapWords);
   }
 
   /**

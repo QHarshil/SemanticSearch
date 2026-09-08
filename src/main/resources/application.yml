@@ -82,6 +82,14 @@ embedding:
   # provider ignores this and reports the width of the loaded model, since that is
   # fixed by the weights.
   dimensions: ${EMBEDDING_DIMENSIONS:256}
+  chunk:
+    # Documents longer than this are split into overlapping passages, each
+    # embedded and indexed on its own. 170 words sits inside the 256 word pieces
+    # the ONNX model reads; past that the model would never see the text a vector
+    # claims to describe. A document shorter than the window is one passage and
+    # is indexed exactly as it would be without chunking.
+    max-words: ${EMBEDDING_CHUNK_MAX_WORDS:170}
+    overlap-words: ${EMBEDDING_CHUNK_OVERLAP_WORDS:40}
   onnx:
     model-id: onnx/all-MiniLM-L6-v2
     # model-dir defaults to ~/.cache/semantic-search-java/models/<model name>.

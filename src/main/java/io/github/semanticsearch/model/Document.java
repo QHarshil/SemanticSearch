@@ -50,6 +50,17 @@ public class Document {
   @Column(name = "indexed", nullable = false)
   private boolean indexed = false;
 
+  /**
+   * How many passages the document is split into in the search index.
+   *
+   * <p>Recorded so a re-index knows exactly which passages the previous version left behind. An
+   * edit that shortens a document produces fewer passages, and the surplus would otherwise keep
+   * matching queries under an id whose text no longer exists. Reading the count back out of the
+   * index instead would depend on a refresh having happened.
+   */
+  @Column(name = "passage_count", nullable = false)
+  private int passageCount = 0;
+
   @CreatedDate
   @Column(name = "created_at", nullable = false, updatable = false)
   private Instant createdAt;
@@ -135,6 +146,14 @@ public class Document {
 
   public void setIndexed(boolean indexed) {
     this.indexed = indexed;
+  }
+
+  public int getPassageCount() {
+    return passageCount;
+  }
+
+  public void setPassageCount(int passageCount) {
+    this.passageCount = passageCount;
   }
 
   public Instant getCreatedAt() {

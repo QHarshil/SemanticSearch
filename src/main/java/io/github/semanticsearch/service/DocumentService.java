@@ -162,7 +162,7 @@ public class DocumentService {
 
     Document document = found.get();
     if (document.getVectorId() != null) {
-      indexService.deleteDocumentVector(document.getVectorId());
+      indexService.deleteDocumentVectors(document);
     }
     documentRepository.delete(document);
     lexicalIndex.invalidate();

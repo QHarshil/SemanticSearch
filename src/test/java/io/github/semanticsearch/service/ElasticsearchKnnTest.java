@@ -138,6 +138,60 @@ class ElasticsearchKnnTest {
   }
 
   @Test
+  void aLongDocumentIsStoredAsSeveralPassagesAndReturnedOnce() {
+    Document indexed = index("Long", longText("trapped ion qubits hold entanglement"), Map.of());
+
+    assertTrue(indexed.getPassageCount() > 1, "the fixture has to be long enough to split");
+    List<Map.Entry<UUID, Double>> results = search("trapped ion qubits entanglement", 10, 0.0);
+
+    // Several passages can match. The caller asked about documents.
+    assertEquals(
+        1,
+        results.stream().filter(hit -> hit.getKey().equals(indexed.getId())).count(),
+        "the same document came back more than once");
+  }
+
+  @Test
+  void shorteningADocumentDeletesThePassagesItNoLongerHas() {
+    Document indexed = index("Long", longText("trapped ion qubits hold entanglement"), Map.of());
+    assertTrue(indexed.getPassageCount() > 1);
+
+    indexed.setContent("Tomatoes and courgettes in August.");
+    Document shortened = indexService.updateDocumentIndex(indexed);
+    indexService.refreshIndex();
+
+    assertEquals(1, shortened.getPassageCount());
+    assertTrue(
+        search("trapped ion qubits entanglement", 10, 0.6).isEmpty(),
+        "a passage of the previous version is still in the index");
+  }
+
+  @Test
+  void deletingADocumentRemovesEveryPassage() {
+    Document indexed = index("Long", longText("trapped ion qubits hold entanglement"), Map.of());
+    assertTrue(indexed.getPassageCount() > 1);
+
+    assertTrue(indexService.deleteDocumentVectors(indexed));
+    indexService.refreshIndex();
+
+    assertTrue(search("trapped ion qubits entanglement", 10, 0.0).isEmpty());
+    assertTrue(search("tomatoes courgettes stone fruit", 10, 0.0).isEmpty());
+  }
+
+  /** Four hundred words of filler with {@code tail} at the end, past any one embedding window. */
+  private static String longText(String tail) {
+    StringBuilder text = new StringBuilder();
+    for (int week = 0; week < 20; week++) {
+      text.append("Late summer brings a glut of tomatoes, courgettes and stone fruit, and the ")
+          .append("kitchen plans week ")
+          .append(week)
+          .append(" of its menu around whatever the growers deliver. Preserving what cannot be ")
+          .append("served fresh keeps the cost of the winter menu down. ");
+    }
+    return text.append(tail).toString();
+  }
+
+  @Test
   void theRealIndexAcceptsWritesAndReturnsThem() {
     Document indexed = index("Vector Search", "Vector search compares embeddings.", Map.of());
 
@@ -232,7 +286,7 @@ class ElasticsearchKnnTest {
   void deletingAVectorRemovesItFromRetrieval() {
     Document indexed = index("Ranking", "Ranking blends similarity and boosts.", Map.of());
 
-    assertTrue(indexService.deleteDocumentVector(indexed.getVectorId()));
+    assertTrue(indexService.deleteDocumentVectors(indexed));
     indexService.refreshIndex();
 
     assertTrue(search("ranking similarity boosts", 5, 0.0).isEmpty());
