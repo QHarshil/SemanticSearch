@@ -10,9 +10,10 @@ A React UI is compiled into the jar and served at `/`.
 
 ![Search results for a paraphrased query, served by the demo profile](docs/images/search.png)
 
-Above is the `demo` profile answering `keeping p95 response time low`, a query
-that shares only the token `p95` with the document at the top of its results. The
-score shown is the blended one described below.
+Above is the `demo` profile with `EMBEDDING_PROVIDER=onnx`, answering `keeping
+p95 response time low`. The query shares one token with the document it ranks
+first and none at all with the two below it, which are there on meaning. The
+scores are the blended ones described below.
 
 ## Architecture
 
@@ -87,6 +88,8 @@ for semantic matching; the first run downloads a 90 MB model.
 | API docs | <http://localhost:8080/swagger-ui.html> |
 | Health | <http://localhost:8080/actuator/health> |
 | Metrics | <http://localhost:8080/actuator/prometheus> |
+
+![The bundled UI, served from the jar at the application root](docs/images/home.png)
 
 ```bash
 curl "http://localhost:8080/api/v1/search?query=keeping+p95+response+time+low"

@@ -6,9 +6,9 @@ const HomePage = () => {
       <section className="hero-section">
         <h1 className="hero-title">Semantic Search</h1>
         <p className="hero-subtitle">
-          A hybrid document search service: results are retrieved by vector
-          similarity, then re-ranked with BM25 lexical scoring, metadata boosts
-          and recency decay.
+          Hybrid document search. Every query is retrieved twice, by vector
+          similarity over document passages and by BM25 over an inverted index,
+          and the two rankings are combined.
         </p>
         <div className="hero-actions">
           <Link to="/search" className="button-primary">Search</Link>
@@ -23,26 +23,27 @@ const HomePage = () => {
             <div className="step-number">1</div>
             <h3>Index</h3>
             <p>
-              A document you add is stored in PostgreSQL and its text is turned
-              into an embedding vector, which is written to the search index.
+              A document you add is stored in PostgreSQL, split into overlapping
+              passages, and each passage is embedded into the search index.
             </p>
           </div>
 
           <div className="process-step">
             <div className="step-number">2</div>
-            <h3>Retrieve</h3>
+            <h3>Retrieve twice</h3>
             <p>
-              Your query is embedded with the same model and the index returns
-              the nearest documents by cosine similarity.
+              The query is embedded and matched against passages by cosine
+              similarity, and separately scored against every document by BM25.
             </p>
           </div>
 
           <div className="process-step">
             <div className="step-number">3</div>
-            <h3>Re-rank</h3>
+            <h3>Fuse</h3>
             <p>
-              Candidates are re-scored by blending the vector score with a BM25
-              lexical score, then adjusted for metadata boosts and document age.
+              The two candidate lists are combined, so a document either
+              retriever found is reachable, then scored together and adjusted for
+              metadata boosts and document age.
             </p>
           </div>
 

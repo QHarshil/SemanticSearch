@@ -7,8 +7,9 @@ const Footer = () => {
         <div className="footer-section">
           <h3 className="footer-heading">Semantic Search</h3>
           <p className="footer-description">
-            Hybrid document search built with Java and Spring Boot. Vector
-            retrieval, re-ranked with BM25, metadata boosts and recency decay.
+            Hybrid document search built with Java and Spring Boot. Vector and
+            BM25 retrieval, fused and re-scored with metadata boosts and recency
+            decay.
           </p>
         </div>
         
