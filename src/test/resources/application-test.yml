@@ -24,6 +24,12 @@ cache:
   redis:
     enabled: false
 
+# The real SecurityConfig runs in tests too, and this is the branch it takes.
+# SecurityRulesTest turns auth back on to cover the other one.
+security:
+  auth:
+    enabled: false
+
 elasticsearch:
   stub-enabled: true
 

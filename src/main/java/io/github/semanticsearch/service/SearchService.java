@@ -17,8 +17,10 @@ import io.github.semanticsearch.repository.DocumentRepository;
 import io.github.semanticsearch.util.ScoreCalculator;
 
 /**
- * Service for semantic search functionality. Coordinates embedding generation, vector search, and
- * result processing.
+ * The query path: embed, retrieve twice, fuse, re-score, truncate.
+ *
+ * <p>Every score this returns is in {@code [0,1]}, whichever fusion method produced it, because
+ * {@code minScore} is a caller-facing contract and has to mean one thing.
  */
 @Service
 public class SearchService {
@@ -36,18 +38,21 @@ public class SearchService {
   private final DocumentRepository documentRepository;
   private final SearchProperties searchProperties;
   private final LexicalIndex lexicalIndex;
+  private final SearchMetrics metrics;
 
   public SearchService(
       EmbeddingService embeddingService,
       IndexService indexService,
       DocumentRepository documentRepository,
       SearchProperties searchProperties,
-      LexicalIndex lexicalIndex) {
+      LexicalIndex lexicalIndex,
+      SearchMetrics metrics) {
     this.embeddingService = embeddingService;
     this.indexService = indexService;
     this.documentRepository = documentRepository;
     this.searchProperties = searchProperties;
     this.lexicalIndex = lexicalIndex;
+    this.metrics = metrics;
   }
 
   /**
@@ -65,7 +70,8 @@ public class SearchService {
   public List<SearchResult> search(SearchRequest request) {
     log.debug("Performing search for query: {}", request.getQuery());
 
-    List<Double> queryVector = embeddingService.embed(request.getQuery());
+    List<Double> queryVector =
+        metrics.time(SearchMetrics.Stage.EMBED, () -> embeddingService.embed(request.getQuery()));
     if (queryVector.isEmpty()) {
       log.warn("Failed to generate embedding for query: {}", request.getQuery());
       return Collections.emptyList();
@@ -82,7 +88,7 @@ public class SearchService {
 
     // Retrieval is deliberately unthresholded. minScore is a floor on the score a
     // caller receives, and the score a caller receives is the fused one computed
-    // below - passing minScore to the vector stage would apply it to a different,
+    // below. Passing minScore to the vector stage would apply it to a different,
     // always-lower number and drop documents whose final score clears the bar.
     //
     // Filters do go into the vector retrieval, so the candidate pool is filled
@@ -90,13 +96,21 @@ public class SearchService {
     // runs, because neither the in-memory index nor the lexical index pre-filters
     // and both have to honour the same contract.
     List<Map.Entry<UUID, Double>> vectorHits =
-        indexService.findSimilarDocuments(queryVector, candidateLimit, 0.0, request.getFilters());
+        metrics.time(
+            SearchMetrics.Stage.VECTOR_RETRIEVAL,
+            () ->
+                indexService.findSimilarDocuments(
+                    queryVector, candidateLimit, 0.0, request.getFilters()));
     // The two retrievers run over the whole corpus independently. Scoring only
-    // what the vector stage returned is what made lexical matching a tiebreaker:
-    // a document whose terms match the query exactly, but whose embedding sits
-    // outside the vector neighbourhood, could not be recovered at any weight.
+    // what the vector stage returned would make lexical matching a tiebreaker: a
+    // document whose terms match the query exactly but whose embedding sits
+    // outside the vector neighbourhood could not be recovered at any weight.
     List<Map.Entry<UUID, Double>> lexicalHits =
-        hybrid ? lexicalIndex.search(request.getQuery(), candidateLimit) : List.of();
+        hybrid
+            ? metrics.time(
+                SearchMetrics.Stage.LEXICAL_RETRIEVAL,
+                () -> lexicalIndex.search(request.getQuery(), candidateLimit))
+            : List.<Map.Entry<UUID, Double>>of();
 
     Set<UUID> candidates = new LinkedHashSet<>();
     vectorHits.forEach(hit -> candidates.add(hit.getKey()));
@@ -120,8 +134,11 @@ public class SearchService {
     Map<UUID, Integer> lexicalRanks = ranksOf(lexicalHits);
 
     Map<UUID, Document> documentsMap =
-        documentRepository.findAllById(candidates).stream()
-            .collect(Collectors.toMap(Document::getId, doc -> doc));
+        metrics.time(
+            SearchMetrics.Stage.HYDRATE,
+            () ->
+                documentRepository.findAllById(candidates).stream()
+                    .collect(Collectors.toMap(Document::getId, doc -> doc)));
 
     FusionMethod fusion = FusionMethod.from(searchProperties.getFusion());
     List<SearchResult> results = new ArrayList<>();
@@ -166,33 +183,40 @@ public class SearchService {
     // Candidates arrive in vector-score order followed by whatever the lexical
     // side added, and fusion, boosts and recency all change the score. Skipping
     // this sort would return an order reflecting vector similarity alone, making
-    // every one of those signals inert - including in the eval metrics, which
+    // every one of those signals inert, including in the eval metrics, which
     // depend solely on rank position.
     results.sort(Comparator.comparingDouble(SearchResult::getScore).reversed());
 
-    // Truncated after fusion, not before: the point of the wider candidate pool
-    // is that the final top-N is chosen on the fused score.
+    // The wider candidate pool only pays off if the final top-N is chosen on the
+    // fused score, so truncation runs after fusion.
     if (results.size() > limit) {
       results = new ArrayList<>(results.subList(0, limit));
     }
 
+    metrics.recordResults(results.size());
     log.debug("Found {} results for query: {}", results.size(), request.getQuery());
     return results;
   }
 
   /**
-   * The weighted blend of the two signals.
+   * The weighted blend of the two signals, floored at the vector score so BM25 can raise a document
+   * and never lower one.
    *
-   * <p>A document with no lexical score holds none of the query's terms. It falls back to its
-   * vector score rather than to zero, because under a semantic embedder matching on meaning without
-   * sharing a word is the expected case, and scoring it as a lexical miss would penalise exactly
-   * the retrieval the vector stage exists to do.
+   * <p>Under a semantic embedder, matching on meaning without sharing a word is the expected case,
+   * so a document holding none of the query's terms must not be scored as a lexical miss. Handing
+   * it the vector score in place of a missing lexical one does that, and creates a worse problem: a
+   * document holding one common query term scores below a document holding none of them, because a
+   * low BM25 value drags the blend down while an absent one cannot. The floor removes the step.
+   * Measured on SciFact it is worth nothing and costs nothing, NDCG@10 0.6732 either way, which is
+   * the point: it fixes an ordering that was indefensible to explain, not one that showed up in the
+   * metrics.
    */
   private double blended(
       UUID documentId, Map<UUID, Double> vectorScores, Map<UUID, Double> lexicalScores) {
     double vectorScore = ScoreCalculator.clamp(vectorScores.getOrDefault(documentId, 0.0));
-    double lexicalScore = lexicalScores.getOrDefault(documentId, vectorScore);
-    return ScoreCalculator.blendScores(vectorScore, lexicalScore, searchProperties);
+    double lexicalScore = lexicalScores.getOrDefault(documentId, 0.0);
+    return Math.max(
+        vectorScore, ScoreCalculator.blendScores(vectorScore, lexicalScore, searchProperties));
   }
 
   private static Map<UUID, Double> scoresOf(List<Map.Entry<UUID, Double>> hits) {
@@ -232,11 +256,9 @@ public class SearchService {
       return Collections.emptyList();
     }
 
-    // Find similar documents
     List<Map.Entry<UUID, Double>> similarDocuments =
         indexService.findSimilarDocuments(documentVector, limit + 1, minScore);
 
-    // Remove the original document from results
     similarDocuments =
         similarDocuments.stream()
             .filter(entry -> !entry.getKey().equals(documentId))
@@ -247,7 +269,6 @@ public class SearchService {
       return Collections.emptyList();
     }
 
-    // Retrieve document details
     List<UUID> documentIds =
         similarDocuments.stream().map(Map.Entry::getKey).collect(Collectors.toList());
 
@@ -255,7 +276,6 @@ public class SearchService {
         documentRepository.findAllById(documentIds).stream()
             .collect(Collectors.toMap(Document::getId, doc -> doc));
 
-    // Build search results
     List<SearchResult> results = new ArrayList<>();
     for (Map.Entry<UUID, Double> entry : similarDocuments) {
       Document similarDoc = documentsMap.get(entry.getKey());
@@ -270,7 +290,7 @@ public class SearchService {
                 .title(similarDoc.getTitle())
                 .content(similarDoc.getContent())
                 .metadata(similarDoc.getMetadata())
-                .score(entry.getValue()) // Use double directly without conversion
+                .score(entry.getValue())
                 .build();
 
         results.add(result);
@@ -294,7 +314,6 @@ public class SearchService {
       return highlights;
     }
 
-    // Simple highlight generation by splitting content into sentences
     String[] sentences = content.split("[.!?]");
     String[] queryTerms = query.toLowerCase().split("\\s+");
 
@@ -315,7 +334,6 @@ public class SearchService {
           highlights.add(highlight);
         }
 
-        // Limit number of highlights
         if (highlights.size() >= 3) {
           break;
         }

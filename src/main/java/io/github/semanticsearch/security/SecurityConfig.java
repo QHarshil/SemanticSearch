@@ -5,7 +5,6 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -17,10 +16,14 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-/** Security configuration for the application. Configures CORS, CSRF, and API security settings. */
+/**
+ * CORS, CSRF and which endpoints need credentials.
+ *
+ * <p>Applies in every profile including tests. A test-only chain that permits everything leaves
+ * these rules unexercised, so a route added to the wrong group would be caught by nothing.
+ */
 @Configuration
 @EnableWebSecurity
-@Profile("!test")
 public class SecurityConfig {
 
   @Value("${security.auth.enabled:true}")
@@ -38,13 +41,6 @@ public class SecurityConfig {
   @Value("${security.cors.max-age:3600}")
   private long maxAge;
 
-  /**
-   * Configures security filter chain. Sets up CORS, CSRF, and API endpoint security.
-   *
-   * @param http HttpSecurity to configure
-   * @return Configured SecurityFilterChain
-   * @throws Exception if configuration fails
-   */
   @Bean
   public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
     http.cors(cors -> cors.configurationSource(corsConfigurationSource()))
@@ -64,8 +60,11 @@ public class SecurityConfig {
                     .requestMatchers(HttpMethod.GET, "/api/v1/search", "/api/v1/search/similar/**")
                     .permitAll()
 
-                    // Swagger/OpenAPI endpoints
-                    .requestMatchers("/swagger-ui/**")
+                    // Swagger and the OpenAPI document. /swagger-ui.html is listed
+                    // separately because it is the entry point springdoc publishes
+                    // and it is not under /swagger-ui/; it answers with a redirect
+                    // into that directory, which never happens if it needs auth.
+                    .requestMatchers("/swagger-ui.html", "/swagger-ui/**")
                     .permitAll()
                     .requestMatchers("/v3/api-docs/**")
                     .permitAll()
@@ -81,12 +80,8 @@ public class SecurityConfig {
                     // Admin endpoints
                     .requestMatchers("/api/v1/search/index/rebuild")
                     .authenticated()
-
-                    // Document management requires authentication
                     .requestMatchers("/api/v1/documents/**")
                     .authenticated()
-
-                    // All other endpoints require authentication
                     .anyRequest()
                     .authenticated())
         .build();

@@ -16,11 +16,7 @@ public final class ScoreCalculator {
     if (!properties.isHybridEnabled()) {
       return clamp(vectorScore);
     }
-    double weight =
-        "B".equalsIgnoreCase(properties.getScoringProfile())
-            ? properties.getHybridVectorWeightProfileB()
-            : properties.getHybridVectorWeight();
-    double w = Math.min(1.0, Math.max(0.0, weight));
+    double w = Math.min(1.0, Math.max(0.0, properties.getHybridVectorWeight()));
     return clamp(w * vectorScore + (1 - w) * lexicalScore);
   }
 

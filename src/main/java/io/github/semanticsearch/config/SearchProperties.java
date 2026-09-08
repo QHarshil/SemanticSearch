@@ -20,14 +20,8 @@ public class SearchProperties {
    */
   private int rrfK = 60;
 
-  /** Weight for vector similarity in hybrid scoring (0-1). */
+  /** Weight for vector similarity in the blended score; BM25 takes the remainder. */
   private double hybridVectorWeight = 0.7;
-
-  /** Alternate weight for profile B (A/B testing). */
-  private double hybridVectorWeightProfileB = 0.5;
-
-  /** Scoring profile label to allow A/B comparisons (e.g., A or B). */
-  private String scoringProfile = "A";
 
   /** Recency half-life in seconds for exponential decay; set 0 or negative to disable. */
   private long recencyHalfLifeSeconds = 604800; // 7 days default
@@ -63,7 +57,12 @@ public class SearchProperties {
     return fusion;
   }
 
+  /**
+   * Rejects a value {@link FusionMethod} does not know, so a typo stops the application at binding
+   * time. Resolving it per request instead would boot cleanly and answer every search with a 500.
+   */
   public void setFusion(String fusion) {
+    FusionMethod.from(fusion);
     this.fusion = fusion;
   }
 
@@ -81,22 +80,6 @@ public class SearchProperties {
 
   public void setHybridVectorWeight(double hybridVectorWeight) {
     this.hybridVectorWeight = hybridVectorWeight;
-  }
-
-  public double getHybridVectorWeightProfileB() {
-    return hybridVectorWeightProfileB;
-  }
-
-  public void setHybridVectorWeightProfileB(double hybridVectorWeightProfileB) {
-    this.hybridVectorWeightProfileB = hybridVectorWeightProfileB;
-  }
-
-  public String getScoringProfile() {
-    return scoringProfile;
-  }
-
-  public void setScoringProfile(String scoringProfile) {
-    this.scoringProfile = scoringProfile;
   }
 
   public long getRecencyHalfLifeSeconds() {

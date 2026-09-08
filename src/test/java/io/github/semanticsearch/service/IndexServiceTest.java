@@ -11,6 +11,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -25,9 +26,9 @@ import io.github.semanticsearch.repository.DocumentRepository;
 /**
  * Indexing and nearest-neighbour lookup against the in-memory index.
  *
- * <p>Scores are asserted against the value the geometry actually implies - 1.0 for a vector
- * compared with itself, strictly between 0 and 1 for a partial overlap - so a similarity regression
- * moves an assertion rather than staying inside a loose bound.
+ * <p>Scores are asserted against the value the geometry implies, 1.0 for a vector compared with
+ * itself and strictly between 0 and 1 for a partial overlap, so a similarity regression moves an
+ * assertion rather than staying inside a loose bound.
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -53,6 +54,56 @@ class IndexServiceTest {
 
   private List<Map.Entry<UUID, Double>> search(String query, int limit, double minScore) {
     return indexService.findSimilarDocuments(embeddingService.embed(query), limit, minScore);
+  }
+
+  @Test
+  void similarityToAgreesWithWhatTheKnnSearchReports() {
+    // Hybrid retrieval scores candidates the kNN search never returned, so the two
+    // paths have to produce the same number for the same document. If they drift,
+    // one fused result list carries scores from two scales.
+    Document match = index("Vector Search", "Vector search compares embeddings.");
+    Document unrelated = index("Bread Baking", "Sourdough needs a long cold proof.");
+    List<Double> queryVector = embeddingService.embed("vector search embeddings");
+
+    Map<UUID, Double> scores =
+        indexService.similarityTo(queryVector, List.of(match.getId(), unrelated.getId()));
+
+    assertEquals(2, scores.size());
+    double fromKnn =
+        indexService.findSimilarDocuments(queryVector, 10, 0.0).stream()
+            .filter(hit -> hit.getKey().equals(match.getId()))
+            .findFirst()
+            .orElseThrow()
+            .getValue();
+    assertEquals(fromKnn, scores.get(match.getId()), 1e-12);
+    assertTrue(
+        scores.get(match.getId()) > scores.get(unrelated.getId()),
+        "matching " + scores.get(match.getId()) + ", unrelated " + scores.get(unrelated.getId()));
+  }
+
+  @Test
+  void similarityToOmitsIdsTheIndexDoesNotHold() {
+    // Absent rather than zero, so a caller can tell "not indexed" apart from
+    // "indexed and unrelated" and decide what to do about it.
+    Document indexed = index("Vector Search", "Vector search compares embeddings.");
+
+    Map<UUID, Double> scores =
+        indexService.similarityTo(
+            embeddingService.embed("vector search"), List.of(indexed.getId(), UUID.randomUUID()));
+
+    assertEquals(Set.of(indexed.getId()), scores.keySet());
+  }
+
+  @Test
+  void similarityToScoresADocumentAgainstItsOwnVectorAtOne() {
+    Document indexed = index("Latency Budgets", "Latency budgets keep responses under a p95.");
+
+    Map<UUID, Double> scores =
+        indexService.similarityTo(
+            embeddingService.embed("Latency Budgets\nLatency budgets keep responses under a p95."),
+            List.of(indexed.getId()));
+
+    assertEquals(1.0, scores.get(indexed.getId()), 1e-9);
   }
 
   @Test

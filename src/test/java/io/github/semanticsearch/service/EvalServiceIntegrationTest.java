@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,10 +32,12 @@ import io.github.semanticsearch.repository.DocumentRepository;
 @ActiveProfiles("test")
 class EvalServiceIntegrationTest {
 
-  // Measured with the lexical embedder: MRR 0.646, NDCG@5 0.704, Recall@5 0.875,
-  // with 7 of the 8 gold documents retrieved. The gold queries
+  // Measured here with the lexical embedder at the 128 dimensions this profile
+  // configures: MRR 0.646, NDCG@5 0.704, Recall@5 0.875, with 7 of the 8 gold
+  // documents retrieved and 4 ranked first. The README quotes 0.615 / 0.679 for
+  // the same corpus, which is the demo profile at 256 dimensions. The gold queries
   // are natural-language paraphrases rather than restatements of the document
-  // text, which is deliberately hard for a lexical model - it can match "term
+  // text, which is deliberately hard for a lexical model. It can match "term
   // frequency scoring" to the BM25 document, but not "what affects result
   // ordering" to "Ranking Signals". A hosted embedding model should score
   // higher; if you switch providers, re-measure and raise these.
@@ -71,7 +72,7 @@ class EvalServiceIntegrationTest {
   @Test
   void curatedGoldSetMeetsRelevanceThresholds() {
     // Exercises runCuratedEval, the method both EvalController and EvalConfig
-    // call, rather than a gold set assembled here - a local fixture would leave
+    // call, instead of a gold set assembled here. A local fixture would leave
     // the production path uncovered.
     EvalService.EvalResult result = evalService.runCuratedEval(5);
     assertEquals(8, result.totalQueries());
@@ -113,24 +114,23 @@ class EvalServiceIntegrationTest {
 
   @Test
   void writesTheReportCiPublishes() throws IOException {
-    // The CI workflow uploads target/eval/report.json as an artifact, so the
-    // shape of that file is part of the contract.
+    // CI uploads target/eval/report.json as an artifact. The EvalResult record is
+    // serialised as-is, so the file matches what GET /api/v1/eval/run returns and
+    // what EvalConfig writes at startup. A hand-built map here would be a third
+    // schema for the same measurement.
     EvalService.EvalResult result = evalService.runCuratedEval(5);
 
     File out = new File("target/eval/report.json");
     out.getParentFile().mkdirs();
     ObjectMapper mapper = new ObjectMapper();
-    mapper.writeValue(
-        out,
-        Map.of(
-            "mrr", result.mrr(),
-            "ndcg", result.ndcg(),
-            "recall", result.recallAtK(),
-            "queries", result.details()));
+    mapper.writeValue(out, result);
 
     var written = mapper.readTree(out);
     assertTrue(Files.size(out.toPath()) > 0);
     assertEquals(result.mrr(), written.get("mrr").asDouble(), 1e-9);
-    assertEquals(8, written.get("queries").size());
+    assertEquals(result.ndcg(), written.get("ndcg").asDouble(), 1e-9);
+    assertEquals(result.recallAtK(), written.get("recallAtK").asDouble(), 1e-9);
+    assertEquals(8, written.get("totalQueries").asInt());
+    assertEquals(8, written.get("details").size());
   }
 }

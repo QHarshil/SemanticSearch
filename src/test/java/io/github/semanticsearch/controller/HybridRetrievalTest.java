@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.ArrayList;
@@ -18,6 +19,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cache.CacheManager;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -27,26 +29,29 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.semanticsearch.config.SearchProperties;
 import io.github.semanticsearch.model.Document;
 import io.github.semanticsearch.repository.DocumentRepository;
+import io.github.semanticsearch.service.EmbeddingService;
 import io.github.semanticsearch.service.IndexService;
+import io.github.semanticsearch.service.LexicalIndex;
 
 /**
  * The case hybrid retrieval exists for: a document the query's words point straight at and the
  * embedding model has no way to reach.
  *
- * <p>The corpus makes that gap deliberate. Two dozen short documents each carry a different error
- * code, which is what a bare code query looks like to an embedding model, so they fill the vector
- * neighbourhood. The one document holding the queried code is four hundred words about seasonal
- * produce with the code at the end, past the 256 word pieces the model reads, so nothing the model
- * sees connects it to the query. BM25 tokenizes the whole document, and the code appears in one
- * document out of twenty-five, the highest inverse document frequency this corpus offers.
+ * <p>The corpus makes that gap deliberate. Forty short documents each carry a different error code,
+ * which is what a bare code query looks like to an embedding model, so they fill the vector
+ * neighbourhood and crowd out the candidate pool. The one document holding the queried code is four
+ * hundred words about seasonal produce with the code at the end, past the 256 word pieces the model
+ * reads, so nothing the model sees connects it to the query. BM25 tokenizes the whole document, and
+ * the code appears in one document out of forty-one, the highest inverse document frequency this
+ * corpus offers.
  *
- * <p>The first test runs the same query with hybrid retrieval off and then on. That is the
- * difference the feature makes, measured rather than assumed: an assertion that the document comes
- * back proves nothing on its own if it was coming back all along.
+ * <p>The first test runs the same query with hybrid retrieval off and then on. That measures the
+ * difference the feature makes. An assertion that the document comes back proves nothing on its own
+ * if it was coming back all along.
  *
  * <p>The two fusion methods answer this query differently, and both answers are pinned here.
  * Recovering the document into the candidate pool is not the same as ranking it, and which method
- * ranks it depends on arithmetic rather than on preference.
+ * ranks it follows from the arithmetic.
  */
 @SpringBootTest(properties = "embedding.provider=onnx")
 @AutoConfigureMockMvc
@@ -59,12 +64,24 @@ class HybridRetrievalTest {
   /** Five results, so the pipeline over-fetches 25 candidates from each retriever. */
   private static final int LIMIT = 5;
 
+  /**
+   * More decoys than the pool holds. With a corpus no larger than the 25 candidates the vector
+   * stage fetches, it returns everything and never misses anything, so there is nothing for the
+   * lexical retriever to recover and the tests below would pass against a pipeline that does not
+   * have one.
+   */
+  private static final int DECOYS = 40;
+
   @Autowired private MockMvc mockMvc;
   @Autowired private DocumentRepository documentRepository;
   @Autowired private IndexService indexService;
   @Autowired private CacheManager cacheManager;
   @Autowired private ObjectMapper objectMapper;
   @Autowired private SearchProperties searchProperties;
+  @Autowired private LexicalIndex lexicalIndex;
+  @Autowired private EmbeddingService embeddingService;
+
+  private UUID goldId;
 
   @BeforeEach
   void seedCorpus() {
@@ -72,10 +89,13 @@ class HybridRetrievalTest {
     indexService.rebuildIndex();
     clearCaches();
 
-    for (int i = 0; i < 24; i++) {
-      index("Error e20" + (10 + i), "Error code e20" + (10 + i) + " on the storage replica.");
+    for (int i = 0; i < DECOYS; i++) {
+      index(
+          "Error e20" + (10 + i),
+          "Error code e20" + (10 + i) + " on the storage replica.",
+          "operations");
     }
-    index(GOLD_TITLE, longProseEndingWith(QUERY));
+    goldId = index(GOLD_TITLE, longProseEndingWith(QUERY), "produce");
   }
 
   @AfterEach
@@ -122,15 +142,41 @@ class HybridRetrievalTest {
 
   @Test
   void aQueryWithNoLexicalMatchStillRanksByMeaning() throws Exception {
-    // Fusion must cost nothing when only one retriever has an opinion. This query
-    // shares no token with any document, so the lexical list comes back empty and
-    // the vector ranking carries it alone.
-    JsonNode results = search("a failing disk in the storage tier");
-
-    assertEquals(LIMIT, results.size());
+    // Fusion must cost nothing when only one retriever has an opinion.
+    String query = "photosynthesis converts sunlight into chemical energy";
     assertTrue(
-        results.get(0).get("score").asDouble() > 0.2,
+        lexicalIndex.search(query, DECOYS).isEmpty(),
+        "premise broken: this query does share a term with the corpus");
+
+    JsonNode results = search(query);
+
+    assertFalse(results.isEmpty(), "the vector ranking has to carry a query BM25 cannot answer");
+    assertTrue(
+        results.get(0).get("score").asDouble() > 0.0,
         "scored " + results.get(0).get("score").asDouble());
+  }
+
+  @Test
+  void aDocumentOnlyTheLexicalSideFoundIsStillScoredOnBothSignals() throws Exception {
+    // The in-memory index does not pre-filter, so a metadata filter no decoy
+    // matches leaves the gold document as the only survivor and its score
+    // readable. Its vector never reached the kNN result, so the number below is
+    // the back-fill's: without it the vector term is zero and the score is the
+    // lexical weight alone.
+    double vectorScore =
+        indexService.similarityTo(embeddingService.embed(QUERY), List.of(goldId)).get(goldId);
+    double lexicalScore = lexicalIndex.score(QUERY, List.of(goldId)).get(goldId);
+    assertTrue(vectorScore > 0.0, "the fixture needs a non-zero vector score to be meaningful");
+
+    JsonNode results = searchFiltered(QUERY, "produce");
+
+    assertEquals(1, results.size());
+    assertEquals(GOLD_TITLE, results.get(0).get("title").asText());
+    assertEquals(
+        0.7 * vectorScore + 0.3 * lexicalScore,
+        results.get(0).get("score").asDouble(),
+        1e-9,
+        "the reported score is not the blend of both signals");
   }
 
   /** Titles the API returns for a query, in rank order. */
@@ -138,6 +184,24 @@ class HybridRetrievalTest {
     List<String> titles = new ArrayList<>();
     search(query).forEach(result -> titles.add(result.get("title").asText()));
     return titles;
+  }
+
+  private JsonNode searchFiltered(String query, String topic) throws Exception {
+    String body =
+        mockMvc
+            .perform(
+                post("/api/v1/search/advanced")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        """
+                        {"query":"%s","limit":%d,"minScore":0.0,"filters":{"topic":"%s"}}
+                        """
+                            .formatted(query, LIMIT, topic)))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    return objectMapper.readTree(body);
   }
 
   private JsonNode search(String query) throws Exception {
@@ -183,12 +247,12 @@ class HybridRetrievalTest {
         .toString();
   }
 
-  private UUID index(String title, String content) {
+  private UUID index(String title, String content, String topic) {
     Document document = new Document();
     document.setTitle(title);
     document.setContent(content);
     document.setContentHash(UUID.randomUUID().toString());
-    document.setMetadata(Map.of("topic", "operations"));
+    document.setMetadata(Map.of("topic", topic));
     Document saved = documentRepository.save(document);
     indexService.indexDocument(saved);
     return saved.getId();

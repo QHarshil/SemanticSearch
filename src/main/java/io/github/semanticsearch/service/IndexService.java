@@ -29,8 +29,8 @@ import co.elastic.clients.elasticsearch.indices.IndexSettings;
 import co.elastic.clients.transport.endpoints.BooleanResponse;
 
 /**
- * Service for indexing and managing document vectors in Elasticsearch. Handles document indexing,
- * updating, and deletion.
+ * The vector index, behind one interface whether it is Elasticsearch or the in-process map that
+ * {@code elasticsearch.stub-enabled} selects by default.
  */
 @Service
 public class IndexService {
@@ -67,9 +67,7 @@ public class IndexService {
     this.lexicalIndex = lexicalIndex;
   }
 
-  /**
-   * Initialize the Elasticsearch index if it doesn't exist. Sets up the vector search capabilities.
-   */
+  /** Creates the index and its {@code dense_vector} mapping if the cluster does not have it. */
   public void initializeIndex() {
     if (stubEnabled) {
       log.info("Elasticsearch stub enabled; skipping remote index initialization");
@@ -237,8 +235,8 @@ public class IndexService {
    */
   @Transactional
   public Document updateDocumentIndex(Document document) {
-    // An edit leaves the document count unchanged, so the corpus statistics
-    // cache cannot detect it by counting rows.
+    // The document's terms have changed, and with them the document frequency of
+    // every term it holds or used to hold.
     lexicalIndex.invalidate();
     return indexDocument(document);
   }
@@ -374,8 +372,8 @@ public class IndexService {
       return scores;
     }
 
-    // The index uses the document id as its own id, so these are direct gets
-    // rather than a search: no query to score, no relevance to interpret.
+    // The index uses the document id as its own id, so these are direct gets.
+    // mget takes ids and returns the stored source, with no query to score.
     List<String> ids = documentIds.stream().map(UUID::toString).toList();
     try {
       MgetResponse<ObjectNode> response =
@@ -413,7 +411,7 @@ public class IndexService {
   /**
    * Elasticsearch reports a cosine kNN hit as {@code (1 + cosine) / 2}, so an orthogonal vector
    * scores 0.5 rather than 0. These two conversions keep the scores this method returns, and the
-   * thresholds it accepts, on the raw cosine scale the in-memory index uses - without them the same
+   * thresholds it accepts, on the raw cosine scale the in-memory index uses. Without them the same
    * {@code minScore} would mean two different things depending on which index was running.
    */
   private static double elasticsearchScoreOf(double cosine) {
@@ -482,8 +480,8 @@ public class IndexService {
    *
    * <p>Values must not be wrapped in {@code JsonData}. The transport serialises this map with its
    * Jackson mapper, which sees a JsonData as an opaque bean with no properties and writes {@code
-   * {}} - so the vector arrives as an empty object and Elasticsearch rejects the write while
-   * parsing dense_vector, which expects an array of numbers. A {@code List<Double>} and a {@code
+   * {}}, so the vector arrives as an empty object and Elasticsearch rejects the write while parsing
+   * dense_vector, which expects an array of numbers. A {@code List<Double>} and a {@code
    * Map<String, String>} serialise to the array and object the mapping declares.
    */
   static Map<String, Object> sourceOf(Document document, List<Double> embedding) {
@@ -533,9 +531,9 @@ public class IndexService {
       return 0.0;
     }
     double cosine = dot / (Math.sqrt(normA) * Math.sqrt(normB));
-    // Clamped to [0,1] to match the Elasticsearch script above. A negative
-    // cosine means the vectors share no direction, which is a non-match rather
-    // than a score worse than "unrelated".
+    // Clamped to [0,1] to match the conversion applied to Elasticsearch kNN
+    // scores above. A negative cosine means the vectors share no direction,
+    // which is a non-match and not a score below "unrelated".
     return Math.max(0.0, cosine);
   }
 }

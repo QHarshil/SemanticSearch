@@ -24,10 +24,10 @@ import io.github.semanticsearch.util.ScoreCalculator;
 /**
  * An in-memory inverted index and the BM25 scoring built on it.
  *
- * <p>It answers two questions. {@link #search} ranks the whole corpus for a query, which is what
- * makes lexical matching a way in rather than a tiebreaker: a document that shares the query's rare
- * terms is retrieved even when the embedding model puts it nowhere near the query. {@link #score}
- * rates documents someone else retrieved, which is what the vector side needs.
+ * <p>It answers two questions. {@link #search} ranks the whole corpus for a query, so a document
+ * that shares the query's rare terms is retrieved even when the embedding model puts it nowhere
+ * near the query. {@link #score} rates documents someone else retrieved, which is what the vector
+ * side needs.
  *
  * <p>Term statistics have to be corpus-wide to mean anything. Deriving inverse document frequency
  * from the handful of documents a vector search returned would compute it over a sample of ten,
@@ -52,24 +52,24 @@ public class LexicalIndex {
     this.searchProperties = searchProperties;
   }
 
-  /**
-   * Drops the index. Only needed when a document's <em>content</em> changes, since {@link
-   * #current()} notices additions and removals on its own.
-   */
+  /** Drops the index so the next query rebuilds it. Every write to the corpus has to call this. */
   public void invalidate() {
     snapshot.set(null);
   }
 
   /**
-   * The current index, rebuilt when the corpus has changed size.
+   * The current index, rebuilt on the first query after any invalidation.
    *
-   * <p>Checking the document count makes this self-validating for inserts and deletes, so callers
-   * do not have to remember to invalidate on every write path. Content edits keep the count the
-   * same and do require {@link #invalidate()}.
+   * <p>Freshness is the writer's responsibility and nothing else's. Rebuilding when the row count
+   * has moved looks like a free safety net and is not one: a delete followed by a create restores
+   * the count while the postings still name the removed document and omit the new one, so the query
+   * that finds the deleted document is the same query that cannot find its replacement. A check
+   * that holds in most cases is worse than no check, because it stops anyone looking for the one
+   * that does not.
    */
   public Snapshot current() {
     Snapshot existing = snapshot.get();
-    if (existing != null && existing.documentCount() == documentRepository.count()) {
+    if (existing != null) {
       return existing;
     }
     Snapshot rebuilt = rebuild();

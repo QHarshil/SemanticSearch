@@ -43,10 +43,13 @@ public class DocumentService {
 
   private final DocumentRepository documentRepository;
   private final IndexService indexService;
+  private final LexicalIndex lexicalIndex;
 
-  public DocumentService(DocumentRepository documentRepository, IndexService indexService) {
+  public DocumentService(
+      DocumentRepository documentRepository, IndexService indexService, LexicalIndex lexicalIndex) {
     this.documentRepository = documentRepository;
     this.indexService = indexService;
+    this.lexicalIndex = lexicalIndex;
   }
 
   /**
@@ -71,7 +74,7 @@ public class DocumentService {
    * Create the document unless its content is already stored.
    *
    * <p>Separate from {@link #create} so that callers expected to re-run over the same input -
-   * seeding and fixture setup - need not drive control flow with an exception. A {@link
+   * seeding and fixture setup, need not drive control flow with an exception. A {@link
    * DuplicateContentException} thrown inside a transaction marks it rollback-only even if the
    * caller catches it, which would abort the rest of the batch.
    *
@@ -94,8 +97,16 @@ public class DocumentService {
     submitted.setIndexed(false);
   }
 
+  /**
+   * Writes the row, the vector and the postings.
+   *
+   * <p>{@link LexicalIndex} is dropped rather than updated in place, because BM25 reads corpus-wide
+   * term statistics and one new document moves the document frequency of every term it holds.
+   */
   private Document persistAndIndex(Document document) {
-    return indexService.indexDocument(saveDetectingDuplicate(document));
+    Document indexed = indexService.indexDocument(saveDetectingDuplicate(document));
+    lexicalIndex.invalidate();
+    return indexed;
   }
 
   /**
@@ -126,7 +137,9 @@ public class DocumentService {
               existing.setMetadata(normalizeMetadata(submitted.getMetadata()));
               existing.setContentHash(hash);
 
-              return indexService.updateDocumentIndex(saveDetectingDuplicate(existing));
+              Document updated = indexService.updateDocumentIndex(saveDetectingDuplicate(existing));
+              lexicalIndex.invalidate();
+              return updated;
             });
   }
 
@@ -152,6 +165,7 @@ public class DocumentService {
       indexService.deleteDocumentVector(document.getVectorId());
     }
     documentRepository.delete(document);
+    lexicalIndex.invalidate();
     return true;
   }
 
@@ -170,6 +184,7 @@ public class DocumentService {
       indexService.indexDocument(document);
     }
     if (!pending.isEmpty()) {
+      lexicalIndex.invalidate();
       log.info("Reconciled {} unindexed documents", pending.size());
     }
     return pending.size();
