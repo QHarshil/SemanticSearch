@@ -21,8 +21,14 @@ public class Document {
   @GeneratedValue(strategy = GenerationType.UUID)
   private UUID id;
 
+  /**
+   * Stored as TEXT because real corpora hold titles longer than the 255 characters Hibernate
+   * defaults a String column to. A scientific paper's title routinely runs past it, and a capped
+   * column turns that into a constraint violation at write time, which reaches the client as a 500
+   * carrying a database message.
+   */
   @NotBlank(message = "Title is required")
-  @Column(nullable = false)
+  @Column(columnDefinition = "TEXT", nullable = false)
   private String title;
 
   @NotBlank(message = "Content is required")

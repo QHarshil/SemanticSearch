@@ -1,0 +1,40 @@
+{
+  "dataset" : "beir/scifact",
+  "split" : "test.tsv",
+  "documents" : 5183,
+  "queries" : 300,
+  "embeddingProvider" : "onnx/all-MiniLM-L6-v2/384",
+  "dimensions" : 384,
+  "vectorWeight" : 0.7,
+  "rrfK" : 60,
+  "indexingSeconds" : 34,
+  "runs" : [ {
+    "configuration" : "bm25 only",
+    "ndcgAt10" : 0.6673,
+    "recallAt100" : 0.8859,
+    "mrr" : 0.64,
+    "medianQueryMs" : 0.4597,
+    "p95QueryMs" : 1.1523
+  }, {
+    "configuration" : "vector only",
+    "ndcgAt10" : 0.6451,
+    "recallAt100" : 0.925,
+    "mrr" : 0.611,
+    "medianQueryMs" : 7.8851,
+    "p95QueryMs" : 10.3046
+  }, {
+    "configuration" : "hybrid, blend",
+    "ndcgAt10" : 0.6732,
+    "recallAt100" : 0.9583,
+    "mrr" : 0.6371,
+    "medianQueryMs" : 9.607,
+    "p95QueryMs" : 12.4727
+  }, {
+    "configuration" : "hybrid, rrf",
+    "ndcgAt10" : 0.6852,
+    "recallAt100" : 0.9683,
+    "mrr" : 0.654,
+    "medianQueryMs" : 8.9038,
+    "p95QueryMs" : 10.2067
+  } ]
+}

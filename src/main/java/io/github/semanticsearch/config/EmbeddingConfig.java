@@ -9,10 +9,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import io.github.semanticsearch.service.HashingEmbedder;
-import io.github.semanticsearch.service.ModelCache;
 import io.github.semanticsearch.service.OnnxEmbedder;
 import io.github.semanticsearch.service.OpenAiEmbeddingClient;
 import io.github.semanticsearch.service.TextEmbedder;
+import io.github.semanticsearch.service.VerifiedFileCache;
 
 /** Wires the embedding providers. See {@code embedding.*} in application.yml. */
 @Configuration
@@ -43,7 +43,9 @@ public class EmbeddingConfig {
   }
 
   private static TextEmbedder onnxEmbedder(OnnxProperties onnx) {
-    ModelCache cache = new ModelCache(modelDir(onnx), onnx.isAutoDownload());
+    VerifiedFileCache cache =
+        new VerifiedFileCache(
+            modelDir(onnx), onnx.isAutoDownload(), "embedding.onnx.auto-download");
     Path model = cache.resolve("model.onnx", onnx.getModelUrl(), onnx.getModelSha256());
     Path tokenizer =
         cache.resolve("tokenizer.json", onnx.getTokenizerUrl(), onnx.getTokenizerSha256());

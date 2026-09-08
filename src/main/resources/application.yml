@@ -114,9 +114,10 @@ management:
   health:
     elasticsearch:
       # Off by default because elasticsearch.stub-enabled is on by default, and
-      # the in-memory index has no cluster to ping - the autoconfigured indicator
-      # would report DOWN out of the box and fail any readiness probe. Set this
-      # to true alongside ELASTICSEARCH_STUB_ENABLED=false; docker-compose does.
+      # the in-memory index has no cluster to ping, so the autoconfigured indicator
+      # would report DOWN on the default configuration and fail any readiness
+      # probe. Set it true alongside ELASTICSEARCH_STUB_ENABLED=false, as
+      # docker-compose does.
       enabled: ${MANAGEMENT_HEALTH_ELASTICSEARCH_ENABLED:false}
   endpoints:
     web:
@@ -152,9 +153,8 @@ search:
   # blend: weighted sum of the two scores. rrf: reciprocal rank fusion.
   fusion: ${SEARCH_FUSION:blend}
   rrf-k: 60
+  # Weight on the vector score in the blend; BM25 takes the rest.
   hybrid-vector-weight: 0.7
-  hybrid-vector-weight-profile-b: 0.5
-  scoring-profile: A
   recency-enabled: true
   recency-half-life-seconds: 604800
   recency-floor: 0.7
@@ -168,6 +168,19 @@ seed:
 
 eval:
   run-on-startup: false
+
+# Read by the benchmark profile below. The archive is around 2.7 MB and is
+# checked against the digest before anything is read out of it.
+benchmark:
+  dataset: scifact
+  split: test.tsv
+  dataset-url: https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/scifact.zip
+  dataset-sha256: 536e14446a0ba56ed1398ab1055f39fe852686ecad24a6306c80c490fa8e0165
+  # dataset-dir defaults to ~/.cache/semantic-search-java/datasets.
+  auto-download: ${BENCHMARK_AUTO_DOWNLOAD:true}
+  k: 10
+  recall-k: 100
+  output: docs/benchmark-scifact.json
 
 ---
 # Runs the whole service with no external dependencies: in-memory database,
@@ -221,3 +234,48 @@ logging:
     io.github.semanticsearch: INFO
     org.springframework: WARN
     org.hibernate: WARN
+
+---
+# Indexes a BEIR dataset, scores retrieval against its relevance judgements,
+# writes the report and exits. Same in-memory stack as the demo profile, so the
+# numbers describe this pipeline and not a database's query planner.
+spring:
+  config:
+    activate:
+      on-profile: benchmark
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+  datasource:
+    url: jdbc:h2:mem:benchmark;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  cache:
+    type: simple
+
+# Nothing calls this over HTTP, and binding 8080 would collide with a running
+# instance for no reason.
+server:
+  port: 0
+
+cache:
+  redis:
+    enabled: false
+
+security:
+  auth:
+    enabled: false
+
+search:
+  # Every document is written during this run, so any decay would score the
+  # corpus by insertion order.
+  recency-enabled: false
+
+logging:
+  level:
+    root: WARN
+    io.github.semanticsearch: INFO

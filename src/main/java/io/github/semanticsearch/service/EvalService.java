@@ -12,10 +12,7 @@ import io.github.semanticsearch.model.SearchRequest;
 import io.github.semanticsearch.model.SearchResult;
 import io.github.semanticsearch.repository.DocumentRepository;
 
-/**
- * Simple evaluation harness for semantic search. Computes MRR and NDCG@k for a small gold set
- * seeded in the database.
- */
+/** Scores a gold set of query and document pairs, reporting MRR, NDCG@k and Recall@k. */
 @Service
 public class EvalService {
 
@@ -50,9 +47,9 @@ public class EvalService {
       List<SearchResult> results = searchService.search(request);
       List<UUID> hits = results.stream().map(SearchResult::getId).collect(Collectors.toList());
 
-      double rr = reciprocalRank(hits, q.relevantDocumentIds());
-      double ndcg = ndcg(hits, q.relevantDocumentIds(), k);
-      double recall = recall(hits, q.relevantDocumentIds(), k);
+      double rr = RankingMetrics.reciprocalRank(hits, q.relevantDocumentIds());
+      double ndcg = RankingMetrics.ndcgAt(hits, q.relevantDocumentIds(), k);
+      double recall = RankingMetrics.recallAt(hits, q.relevantDocumentIds(), k);
       mrrSum += rr;
       ndcgSum += ndcg;
       recallSum += recall;
@@ -69,12 +66,12 @@ public class EvalService {
   /**
    * Runs the built-in gold set against the seeded demo corpus.
    *
-   * <p>Queries are phrased the way someone would actually search rather than copied from the
-   * document text, so a result depends on graded similarity and not on an exact string match.
+   * <p>Queries are phrased the way someone would search, not copied from the document text, so a
+   * result depends on graded similarity and not on an exact string match.
    *
-   * <p>Every pair is answerable: the gold document genuinely covers the query's topic. A pair whose
-   * answer is not in the corpus, or whose gold document is only loosely related, can be satisfied
-   * only by accident and drags the reported score down for reasons unrelated to ranking quality.
+   * <p>Every gold document genuinely covers its query's topic. A pair whose answer is not in the
+   * corpus, or whose gold document is only loosely related, can be satisfied only by accident and
+   * drags the reported score down for reasons unrelated to ranking quality.
    */
   public EvalResult runCuratedEval(int k) {
     List<EvalQuery> curated =
@@ -88,45 +85,6 @@ public class EvalService {
             new EvalQuery("splitting large files into passages", lookup("Chunking Long Documents")),
             new EvalQuery("avoiding repeated work per query", lookup("Caching Query Results")));
     return runEval(curated, k);
-  }
-
-  private double reciprocalRank(List<UUID> hits, List<UUID> gold) {
-    for (int i = 0; i < hits.size(); i++) {
-      if (gold.contains(hits.get(i))) {
-        return 1.0 / (i + 1);
-      }
-    }
-    return 0.0;
-  }
-
-  private double ndcg(List<UUID> hits, List<UUID> gold, int k) {
-    double dcg = 0.0;
-    for (int i = 0; i < Math.min(hits.size(), k); i++) {
-      UUID docId = hits.get(i);
-      int rel = gold.contains(docId) ? 1 : 0;
-      if (rel > 0) {
-        dcg += rel / (Math.log(i + 2) / Math.log(2));
-      }
-    }
-
-    List<Integer> ideal = gold.stream().map(g -> 1).collect(Collectors.toList());
-    double idcg = 0.0;
-    for (int i = 0; i < Math.min(ideal.size(), k); i++) {
-      int rel = ideal.get(i);
-      idcg += rel / (Math.log(i + 2) / Math.log(2));
-    }
-    if (idcg == 0) {
-      return 0.0;
-    }
-    return dcg / idcg;
-  }
-
-  private double recall(List<UUID> hits, List<UUID> gold, int k) {
-    if (gold == null || gold.isEmpty()) {
-      return 0.0;
-    }
-    long found = hits.stream().limit(k).filter(gold::contains).count();
-    return (double) found / (double) gold.size();
   }
 
   public record EvalQuery(String query, List<UUID> relevantDocumentIds) {}

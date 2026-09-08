@@ -26,13 +26,13 @@ import org.junit.jupiter.api.io.TempDir;
 import com.sun.net.httpserver.HttpServer;
 
 /**
- * Covers the guarantees {@link ModelCache} exists to provide: a file that does not match its digest
- * never reaches the model loader, and a file already in the cache is not fetched again.
+ * Covers the guarantees {@link VerifiedFileCache} exists to provide: a file that does not match its
+ * digest never reaches the model loader, and a file already in the cache is not fetched again.
  *
  * <p>Served from a loopback HTTP server so the download path runs for real without depending on
  * Hugging Face being reachable.
  */
-class ModelCacheTest {
+class VerifiedFileCacheTest {
 
   private static final byte[] PAYLOAD = "pretend this is a model".getBytes(StandardCharsets.UTF_8);
 
@@ -81,7 +81,7 @@ class ModelCacheTest {
 
   @Test
   void servesASecondCallFromDiskWithoutFetchingAgain() {
-    ModelCache cache = cache(true);
+    VerifiedFileCache cache = cache(true);
     Path first = cache.resolve("model.bin", source, digest(PAYLOAD));
     Path second = cache.resolve("model.bin", source, digest(PAYLOAD));
 
@@ -100,6 +100,23 @@ class ModelCacheTest {
             IllegalStateException.class, () -> cache(true).resolve("model.bin", source, wrong));
 
     assertTrue(thrown.getMessage().contains("SHA-256"), thrown.getMessage());
+    // Nothing is left in the cache, so the next run downloads again. Keeping the
+    // bad bytes would make every later start fail the same way on a file the
+    // service cannot repair by itself.
+    assertFalse(Files.exists(cacheDir.resolve("model.bin")));
+    assertFalse(Files.exists(cacheDir.resolve("model.bin.partial")));
+  }
+
+  @Test
+  void recoversOnTheNextAttemptAfterABadDownload() {
+    String wrong = digest("a different model".getBytes(StandardCharsets.UTF_8));
+    assertThrows(
+        IllegalStateException.class, () -> cache(true).resolve("model.bin", source, wrong));
+
+    Path resolved = cache(true).resolve("model.bin", source, digest(PAYLOAD));
+
+    assertTrue(Files.exists(resolved));
+    assertEquals(2, requests.get(), "the retry must fetch again rather than reuse bad bytes");
   }
 
   @Test
@@ -138,8 +155,8 @@ class ModelCacheTest {
         "a failed download must not leave a file the next run treats as a cache hit");
   }
 
-  private ModelCache cache(boolean autoDownload) {
-    return new ModelCache(cacheDir, autoDownload);
+  private VerifiedFileCache cache(boolean autoDownload) {
+    return new VerifiedFileCache(cacheDir, autoDownload, "embedding.onnx.auto-download");
   }
 
   private static String digest(byte[] content) {

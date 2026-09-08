@@ -3,6 +3,7 @@ package io.github.semanticsearch.controller;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -70,6 +71,26 @@ class DocumentApiTest {
             .getResponse()
             .getContentAsString();
     return objectMapper.readTree(response).get("id").asText();
+  }
+
+  @Test
+  void acceptsATitleLongerThanTheDefaultColumnWidth() throws Exception {
+    // Hibernate gives a String column 255 characters unless told otherwise, and
+    // real corpora run past it: four of the 5,183 SciFact abstracts have a longer
+    // title, the longest at 300 characters. A capped column turns those into a
+    // constraint violation at write time, which reaches the client as a 500
+    // carrying a database message.
+    String title =
+        "Greater clinical benefit of more intensive oral antiplatelet therapy ".repeat(6).trim();
+    assertTrue(title.length() > 255, "the fixture must exceed the default column width");
+
+    mockMvc
+        .perform(
+            post("/api/v1/documents")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(documentJson(title, "A study of antiplatelet therapy after stenting.")))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.title", is(title)));
   }
 
   @Test

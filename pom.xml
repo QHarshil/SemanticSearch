@@ -282,11 +282,12 @@
                                         <limit>
                                             <counter>LINE</counter>
                                             <value>COVEREDRATIO</value>
-                                            <!-- Measured at 0.70; raise as coverage improves.
-                                                 Kept at a level the suite genuinely meets rather
-                                                 than an aspirational number that only passed
-                                                 because the plugin was skipped. -->
-                                            <minimum>0.65</minimum>
+                                            <!-- Line coverage measures 0.795. The gate sits
+                                                 below it so ordinary work does not trip on the
+                                                 number, and above the level where whole paths
+                                                 could go untested unnoticed. Raise it as the
+                                                 measurement rises. -->
+                                            <minimum>0.75</minimum>
                                         </limit>
                                     </limits>
                                 </rule>

@@ -20,28 +20,34 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * A directory of model files on disk, fetched on first use and checked against a known digest.
+ * A directory of large files kept on disk, fetched on first use and checked against a known digest.
  *
- * <p>Model weights are too large to keep in the repository, so they are downloaded instead. That
- * makes the digest the only thing tying what runs to what was reviewed: a mirror that serves a
- * different file, a truncated download or a half-written cache entry all produce a model that loads
- * without complaint and returns vectors nobody has evaluated. Every file is hashed on every
- * startup, not only after downloading, because a cached file can be replaced or corrupted between
- * runs.
+ * <p>Model weights and evaluation corpora are both too large to keep in the repository, so they are
+ * downloaded instead. That makes the digest the only thing tying what runs to what was reviewed: a
+ * mirror serving a different file, a truncated download and a half-written cache entry all produce
+ * something that loads without complaint and gives results nobody has checked. Every file is hashed
+ * on every use, not only after downloading, because a cached file can be replaced or corrupted
+ * between runs.
  */
-public final class ModelCache {
+public final class VerifiedFileCache {
 
-  private static final Logger log = LoggerFactory.getLogger(ModelCache.class);
+  private static final Logger log = LoggerFactory.getLogger(VerifiedFileCache.class);
 
   private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(30);
   private static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(10);
 
   private final Path directory;
   private final boolean autoDownload;
+  private final String downloadSetting;
 
-  public ModelCache(Path directory, boolean autoDownload) {
+  /**
+   * @param downloadSetting the configuration key that turns downloading on, named in the error
+   *     raised when a file is missing and downloading is off
+   */
+  public VerifiedFileCache(Path directory, boolean autoDownload, String downloadSetting) {
     this.directory = directory;
     this.autoDownload = autoDownload;
+    this.downloadSetting = downloadSetting;
   }
 
   /**
@@ -59,20 +65,20 @@ public final class ModelCache {
     if (!Files.isRegularFile(target)) {
       if (!autoDownload) {
         throw new IllegalStateException(
-            "Model file "
-                + target
-                + " is missing and embedding.onnx.auto-download is false. Download it from "
+            target
+                + " is missing and "
+                + downloadSetting
+                + " is false. Fetch it from "
                 + source
-                + " or point embedding.onnx.model-dir at a directory that already holds it.");
+                + " yourself, or point the cache directory at somewhere that already holds it.");
       }
-      download(source, target);
+      download(source, target, sha256);
     }
 
     String actual = sha256(target);
     if (!actual.equalsIgnoreCase(sha256)) {
       throw new IllegalStateException(
-          "Model file "
-              + target
+          target
               + " has SHA-256 "
               + actual
               + " but "
@@ -82,11 +88,11 @@ public final class ModelCache {
     return target;
   }
 
-  private void download(URI source, Path target) {
-    // Downloaded beside the target and moved into place once complete, so an
-    // interrupted download cannot leave a short file that the next startup reads
-    // as a cache hit. The digest check would reject it, but only after the
-    // failure has been attributed to the wrong thing.
+  private void download(URI source, Path target, String sha256) {
+    // Downloaded beside the target, checked, and only then moved into place. A
+    // file that arrives truncated or altered never becomes a cache entry, so the
+    // next run downloads again instead of failing the same way forever on bytes
+    // it cannot repair by itself.
     Path partial = target.resolveSibling(target.getFileName() + ".partial");
     log.info("Downloading {} to {}", source, target);
     try (HttpClient client =
@@ -104,6 +110,11 @@ public final class ModelCache {
       }
       try (InputStream body = response.body()) {
         Files.copy(body, partial, StandardCopyOption.REPLACE_EXISTING);
+      }
+      String actual = sha256(partial);
+      if (!actual.equalsIgnoreCase(sha256)) {
+        throw new IllegalStateException(
+            source + " served content with SHA-256 " + actual + " but " + sha256 + " was expected");
       }
       move(partial, target);
       log.info("Downloaded {} ({} bytes)", target.getFileName(), Files.size(target));
