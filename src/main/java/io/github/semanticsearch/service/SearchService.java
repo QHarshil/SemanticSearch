@@ -235,12 +235,16 @@ public class SearchService {
   }
 
   /**
-   * Find documents similar to a given document.
+   * Documents nearest to an existing one, excluding itself.
    *
-   * @param documentId ID of the document to find similar documents for
-   * @param limit Maximum number of results to return
-   * @param minScore Minimum similarity score threshold
-   * @return List of search results
+   * <p>The whole document is embedded as the query. Indexing splits it into passages and this does
+   * not, so under a provider with a context window a long document is compared on its opening
+   * alone. Averaging its passage vectors would use all of it and is the obvious improvement; it
+   * needs the index to hand back vectors, which nothing else asks for yet.
+   *
+   * @param documentId the document to find neighbours for
+   * @param limit how many neighbours to return
+   * @param minScore floor on the similarity a neighbour must reach
    */
   public List<SearchResult> findSimilarDocuments(UUID documentId, int limit, double minScore) {
     Optional<Document> documentOpt = documentRepository.findById(documentId);

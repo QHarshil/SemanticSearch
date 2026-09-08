@@ -617,6 +617,9 @@ Notable pieces:
 - Passages are fixed-width word windows. They ignore sentence and paragraph
   boundaries, so a window can open mid-sentence; the overlap is what stops that
   losing the sentence entirely.
+- `GET /search/similar/{id}` embeds the whole source document as its query
+  instead of its passages, so under a provider with a context window a long
+  document is compared on its opening alone.
 - Persistence entities double as API request and response bodies, so responses
   carry internal fields such as `vectorId`, `contentHash`, `indexed` and
   `passageCount`.
