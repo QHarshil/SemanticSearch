@@ -13,10 +13,7 @@ import org.springframework.stereotype.Repository;
 
 import io.github.semanticsearch.model.Document;
 
-/**
- * Repository for Document entity operations. Provides methods for CRUD operations and custom
- * queries.
- */
+/** Spring Data access to the {@code documents} table. */
 @Repository
 public interface DocumentRepository extends JpaRepository<Document, UUID> {
 

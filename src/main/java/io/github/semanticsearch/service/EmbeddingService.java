@@ -72,8 +72,8 @@ public class EmbeddingService {
    * <p>Text alone does not identify an embedding. Vectors from different models occupy unrelated
    * coordinate spaces, and a vector of the wrong width cannot be scored against the index at all.
    * Because a cache hit returns before the method body runs, a key without these components would
-   * serve vectors built under a previous configuration - and skip the width check below - until
-   * every entry aged out.
+   * serve vectors built under a previous configuration, and skip the width check below, until every
+   * entry aged out.
    */
   public String cacheNamespace() {
     return cacheNamespace;

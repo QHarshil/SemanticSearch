@@ -10,7 +10,7 @@ import java.util.Map;
  * <p>This is a <em>lexical</em> model, not a trained semantic one. Texts that share words score
  * highly, and morphological variants stay close because they share character n-grams ("rank",
  * "ranking" and "ranked" all overlap). It does not know that "car" and "automobile" mean the same
- * thing - that requires a trained model, which is what the OpenAI provider is for.
+ * thing. That requires a trained model, which is what the other providers are for.
  *
  * <p>It exists so the service runs offline with no API key and still produces reproducible,
  * sensibly ordered results. Feature hashing is what makes the similarity graded: two texts sharing
@@ -95,7 +95,7 @@ public final class HashingEmbedder implements TextEmbedder {
   private Map<String, Integer> countFeatures(String text) {
     Map<String, Integer> counts = new HashMap<>();
     // Shares Tokenizer with BM25 so both score the same terms, and so stop words
-    // are excluded here too - they would otherwise dominate the vector for a
+    // are excluded here too, since they would otherwise dominate the vector for a
     // natural-language query.
     for (String token : Tokenizer.tokenize(text)) {
       counts.merge("w:" + token, 1, Integer::sum);

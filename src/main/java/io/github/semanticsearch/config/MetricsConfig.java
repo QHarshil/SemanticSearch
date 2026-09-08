@@ -13,9 +13,9 @@ public class MetricsConfig {
 
   @Bean
   public MeterRegistryCustomizer<MeterRegistry> metricsCommonTags(Environment environment) {
-    // Read from the Environment rather than written as "${spring.profiles.active:default}".
-    // Property placeholders are not resolved inside a @Bean method body, so that
-    // literal string was being shipped as the environment tag on every metric.
+    // Property placeholders are not resolved inside a @Bean method body, so
+    // "${spring.profiles.active:default}" written here ships verbatim as the
+    // environment tag on every metric. The Environment resolves it.
     String[] activeProfiles = environment.getActiveProfiles();
     String environmentTag =
         activeProfiles.length == 0 ? "default" : String.join(",", activeProfiles);

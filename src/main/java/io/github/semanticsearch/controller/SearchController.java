@@ -27,10 +27,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 
-/**
- * Controller for search operations. Provides endpoints for semantic search and similar document
- * search.
- */
+/** The read side of the API. Everything here is public when authentication is on. */
 @RestController
 @RequestMapping("/api/v1/search")
 @Validated

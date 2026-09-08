@@ -23,10 +23,11 @@ import io.github.semanticsearch.repository.DocumentRepository;
 @ActiveProfiles("test")
 class OnnxEvalTest {
 
-  // Measured with all-MiniLM-L6-v2: MRR 0.938, NDCG@5 0.954, Recall@5 1.000, with
-  // seven of the eight queries ranking their gold document first. The hashing
-  // embedder reaches 0.646 / 0.704 / 0.875 and four of eight on the same corpus
-  // and the same queries.
+  // Measured here with all-MiniLM-L6-v2: MRR 0.938, NDCG@5 0.954, Recall@5 1.000,
+  // with seven of the eight queries ranking their gold document first. The
+  // hashing embedder reaches 0.646 / 0.704 / 0.875 and four of eight on the same
+  // corpus and the same queries. The model fixes its own width at 384, so unlike
+  // the hashing figures these do not move with embedding.dimensions.
   //
   // Thresholds sit below the measured values so ordinary tuning does not break the
   // build, and above everything the lexical embedder reaches, so a configuration

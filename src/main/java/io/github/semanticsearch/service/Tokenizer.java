@@ -31,7 +31,7 @@ final class Tokenizer {
    * contribution swamps the two terms that actually identify the subject.
    *
    * <p>Kept deliberately short. An aggressive list starts removing words that matter in a technical
-   * corpus - "can", "will" and "no" all appear in real queries.
+   * corpus. "can", "will" and "no" all appear in real queries.
    */
   private static final Set<String> STOP_WORDS =
       Set.of(

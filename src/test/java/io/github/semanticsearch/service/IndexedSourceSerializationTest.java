@@ -18,7 +18,7 @@ import jakarta.json.stream.JsonGenerator;
  * Serialises the indexed document body through the same mapper the Elasticsearch transport uses.
  *
  * <p>This is the cheap half of the Elasticsearch coverage: it needs no container, so it runs
- * everywhere, and it catches the failure mode that matters most about this map - a value the mapper
+ * everywhere, and it catches the failure mode that matters most about this map: a value the mapper
  * cannot introspect serialises to {@code {}}, which Elasticsearch rejects while parsing
  * dense_vector because it expects an array of numbers. Wrapping the vector in {@code JsonData} does
  * exactly that.

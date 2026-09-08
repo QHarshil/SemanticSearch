@@ -16,7 +16,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * <p>Deliberately hand-rolled rather than using an SDK. The only call this service needs is a
  * single POST, where a community SDK such as com.theokanning.openai-gpt3-java would pull in the
  * Scala standard library, RxJava and classgraph to support function-calling features never used
- * here - roughly 15 MB of the packaged jar.
+ * here, roughly 15 MB of the packaged jar.
  */
 public class OpenAiEmbeddingClient {
 

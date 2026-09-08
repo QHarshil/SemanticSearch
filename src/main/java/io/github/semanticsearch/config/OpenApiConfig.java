@@ -10,7 +10,7 @@ import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.info.License;
 import io.swagger.v3.oas.models.security.SecurityScheme;
 
-/** Configuration for OpenAPI documentation. Sets up Swagger UI and API documentation. */
+/** The OpenAPI document served at {@code /v3/api-docs} and rendered at {@code /swagger-ui.html}. */
 @Configuration
 public class OpenApiConfig {
 
@@ -23,11 +23,6 @@ public class OpenApiConfig {
   @Value("${spring.application.version:1.0.0}")
   private String applicationVersion;
 
-  /**
-   * Configure OpenAPI documentation.
-   *
-   * @return OpenAPI configuration
-   */
   @Bean
   public OpenAPI openAPI() {
     return new OpenAPI()

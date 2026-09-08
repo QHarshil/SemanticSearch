@@ -12,8 +12,8 @@ import io.github.semanticsearch.model.Document;
 import io.github.semanticsearch.repository.DocumentRepository;
 
 /**
- * Simple in-memory implementation of {@link DocumentRepository} for fast, isolated unit tests. Only
- * the methods that are used in tests are implemented; the rest throw {@link
+ * In-memory implementation of {@link DocumentRepository} for fast, isolated unit tests. Only the
+ * methods that are used in tests are implemented; the rest throw {@link
  * UnsupportedOperationException} to surface unexpected usage.
  */
 public class InMemoryDocumentRepository implements DocumentRepository {

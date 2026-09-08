@@ -15,11 +15,10 @@ import org.springframework.test.web.servlet.MockMvc;
  * The bundled UI is served from the jar, so how unmatched paths resolve is part of the
  * application's behaviour.
  *
- * <p>Nothing covered this before, and it was completely broken: the SPA fallback forwarded matching
- * paths to /index.html using a pattern that also matched index.html and every file under /assets,
- * so the forward target forwarded to itself. Loading the UI from the packaged jar produced a
- * StackOverflowError, and the tests could not have noticed because none of them made an HTTP
- * request.
+ * <p>A forward-based fallback needs a pattern broad enough to catch client-side routes, and any
+ * such pattern also matches index.html and the files under /assets, so the forward target forwards
+ * to itself until the stack overflows. Only a real HTTP request shows that, which is why these
+ * cases go through MockMvc.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -71,10 +70,9 @@ class StaticUiRoutingTest {
 
   @Test
   void healthIsUpInTheDefaultStubConfiguration() throws Exception {
-    // The autoconfigured Elasticsearch indicator pings a real cluster, which does
-    // not exist when the in-memory index is used - and that is the default. Left
-    // enabled it reported DOWN out of the box, which would fail a readiness probe
-    // and the container health check on a service that is working perfectly well.
+    // The autoconfigured Elasticsearch indicator pings a real cluster, and the
+    // default configuration has none. Enabled, it reports DOWN on a working
+    // service and fails both the readiness probe and the container health check.
     mockMvc
         .perform(get("/actuator/health"))
         .andExpect(status().isOk())

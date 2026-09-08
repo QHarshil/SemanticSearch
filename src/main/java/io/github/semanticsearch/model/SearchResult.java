@@ -4,7 +4,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Data transfer object for search results. Contains document information and relevance score. */
+/**
+ * One result. {@code score} is the fused score after boosts and recency, always in {@code [0,1]}.
+ */
 public class SearchResult {
 
   private UUID id;

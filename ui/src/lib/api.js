@@ -72,7 +72,7 @@ export function seedDemoDocuments() {
   return fetch(`${BASE}/documents/seed`, { method: 'POST' }).then((r) => r.ok);
 }
 
-/** Actuator, not /api/v1 — there is no health endpoint under the API prefix. */
+/** Actuator, not /api/v1. There is no health endpoint under the API prefix. */
 export async function checkHealth() {
   try {
     const response = await fetch('/actuator/health');

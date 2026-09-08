@@ -37,7 +37,7 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s \
   CMD wget -q -O- http://localhost:8080/actuator/health || exit 1
 
-# Runs the Spring Boot launcher from the jar. This previously exploded the jar
-# and invoked the main class with a hand-built classpath, which bypasses the
-# launcher and breaks whenever the layout changes.
+# Runs the Spring Boot launcher from the jar. Exploding the jar and invoking the
+# main class with a hand-built classpath bypasses the launcher and breaks
+# whenever the layout changes.
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

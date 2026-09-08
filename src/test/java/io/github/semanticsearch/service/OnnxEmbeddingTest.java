@@ -30,9 +30,9 @@ class OnnxEmbeddingTest {
 
   @Test
   void scoresSynonymsCloseTogetherAndUnrelatedWordsApart() {
-    // Measured: 0.86 against 0.39. HashingEmbedder scores this pair at 0.0,
-    // because "car" and "automobile" have no word and no character trigram in
-    // common; no lexical model can recover the relationship.
+    // Measured: 0.86 against 0.39. HashingEmbedder scores the same pair at -0.12,
+    // because "car" and "automobile" share no word and no character trigram, so
+    // what is left is hash collision noise. No lexical model can do better.
     double synonyms = similarity("car", "automobile");
     double unrelated = similarity("car", "banana");
 

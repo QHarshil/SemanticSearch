@@ -9,19 +9,25 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 
-/** Data transfer object for search requests. Contains query text and optional search parameters. */
+/**
+ * A search request.
+ *
+ * <p>Value-based {@code equals} and {@code hashCode} over every field, because {@code
+ * SearchService.search} is cached on this object and two requests that differ anywhere must not
+ * share an answer.
+ */
 public class SearchRequest {
 
   /**
    * Default floor on the score a result must reach to be returned.
    *
-   * <p>Calibrated against the local lexical embedder over the demo corpus, where natural-language
-   * queries score their best match between 0.32 and 0.53. Measured over the eight gold queries,
-   * every one still returns results at a floor of 0.3 and none do at 0.4, so 0.2 keeps a margin
-   * below that cliff while dropping the weakly-matching tail: it takes those queries from 64
-   * results to 18.
+   * <p>Calibrated against the lexical embedder over the demo corpus, where natural-language queries
+   * score their best match between 0.32 and 0.53. Over the eight gold queries a floor of 0.3 still
+   * answers all eight and 0.4 answers only three, so 0.2 keeps a margin below that edge while
+   * dropping the weakly matching tail. It takes those queries from 64 results to 22.
    *
-   * <p>A hosted embedding model spreads scores differently and may warrant a higher floor.
+   * <p>Another embedding model spreads scores differently. Under the ONNX provider the same queries
+   * top out between 0.37 and 0.64, and a floor set for one model is not a floor for another.
    */
   public static final double DEFAULT_MIN_SCORE = 0.2;
 

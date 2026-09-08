@@ -51,13 +51,11 @@ public class ElasticsearchConfig {
   public ElasticsearchClient elasticsearchClient() {
     final CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
 
-    // Add authentication if credentials are provided
     if (!username.isEmpty() && !password.isEmpty()) {
       credentialsProvider.setCredentials(
           AuthScope.ANY, new UsernamePasswordCredentials(username, password));
     }
 
-    // Create the low-level client
     RestClient restClient =
         RestClient.builder(new HttpHost(host, port, protocol))
             .setHttpClientConfigCallback(
@@ -65,11 +63,9 @@ public class ElasticsearchConfig {
                     httpClientBuilder.setDefaultCredentialsProvider(credentialsProvider))
             .build();
 
-    // Create the transport with the Jackson mapper
     ElasticsearchTransport transport =
         new RestClientTransport(restClient, new JacksonJsonpMapper());
 
-    // Create the API client
     return new ElasticsearchClient(transport);
   }
 }

@@ -27,10 +27,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 
 /**
- * Controller for document management operations. Provides endpoints for CRUD operations on
- * documents.
- *
- * <p>Writes are delegated to {@link DocumentService}, which owns hashing, indexing and cache
+ * Writes are delegated to {@link DocumentService}, which owns hashing, indexing and cache
  * invalidation as one unit. Reads that need no orchestration go straight to the repository.
  */
 @RestController

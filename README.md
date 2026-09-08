@@ -10,7 +10,7 @@ A React UI is compiled into the jar and served at `/`.
 
 ![Search results for a paraphrased query, served by the demo profile](docs/images/search.png)
 
-Above is the `demo` profile answering `keeping p95 response time low` — a query
+Above is the `demo` profile answering `keeping p95 response time low`, a query
 that shares only the token `p95` with the document it retrieves. The score shown
 is the blended one described below.
 
@@ -18,7 +18,8 @@ is the blended one described below.
 
 ```mermaid
 flowchart LR
-    C[Client] -->|GET /search| S[SearchService]
+    C[Client] -->|GET /search| SC[SearchController]
+    SC --> S[SearchService]
     S -->|embed query| EM[EmbeddingService]
     EM --> HE[HashingEmbedder<br/>lexical, default]
     EM --> ON[OnnxEmbedder<br/>all-MiniLM-L6-v2, local]
@@ -28,17 +29,22 @@ flowchart LR
     IX --> ES[(Elasticsearch<br/>dense_vector, HNSW)]
     IX --> MM[(In-memory index<br/>default)]
     S -->|BM25 over the whole corpus<br/>5x the requested limit| LX[LexicalIndex<br/>inverted index]
-    S -->|hydrate documents| PG[(PostgreSQL)]
+    LX -.->|rebuilt from the corpus<br/>after any write| PG[(PostgreSQL)]
+    S -->|hydrate documents| PG
+    S -->|similarity for candidates<br/>only the other side found| IX
     S --> FU[fuse the two rankings,<br/>metadata boosts, recency,<br/>re-sort, truncate]
-    FU --> C
+    FU --> SC
 ```
 
-Writes go the other way, through `DocumentService`: hash, dedupe, persist, embed,
-upsert into the index under the document id, then invalidate the search cache.
+Writes go the other way, through `DocumentService`. It hashes, dedupes, persists,
+embeds, upserts into the vector index under the document id, then drops the
+search cache and the lexical index. Rebuilding the postings on the next query
+costs a pass over the corpus, which is the price of BM25 statistics that are
+corpus-wide.
 
 ## Quick start
 
-Requires JDK 21 or later. Nothing else — no database, no Docker.
+Requires JDK 21 or later. No database, no Docker.
 
 ```bash
 ./mvnw clean package
@@ -61,17 +67,25 @@ for semantic matching; the first run downloads a 90 MB model.
 curl "http://localhost:8080/api/v1/search?query=keeping+p95+response+time+low"
 ```
 
-A real response from that command, with the score shortened:
+A real response from that command, with scores shortened:
 
 ```json
 [
   {
-    "id": "b5a8d543-00fd-4952-949a-959df667b332",
+    "id": "7fc51eed-d087-4977-ad7a-7bea2dea49f9",
     "title": "Latency Budgets",
     "content": "Latency budgets keep search responses under a target p95. Every stage of the pipeline, from embedding the query to fetching documents, spends part of that budget.",
     "metadata": { "topic": "performance" },
     "score": 0.3484,
     "highlights": ["Latency budgets keep search responses under a target p95"]
+  },
+  {
+    "id": "111d8ab5-2c25-4170-bdc1-898b0cb8a113",
+    "title": "Evaluating Relevance",
+    "content": "Offline evaluation compares ranked results against a gold set using metrics like MRR, NDCG and recall. Without a gold set, tuning relevance is guesswork.",
+    "metadata": { "topic": "evaluation" },
+    "score": 0.2239,
+    "highlights": []
   }
 ]
 ```
@@ -88,8 +102,9 @@ Two retrievers run over the whole corpus, and their rankings are combined:
    similarity, over-fetching 5× the requested number of results (capped at 200).
    Against Elasticsearch this is an approximate kNN search over the HNSW graph
    built for the `vector` field, with metadata filters applied inside it.
-2. In parallel, `LexicalIndex` ranks the corpus by BM25 over an in-memory
-   inverted index, over-fetching the same number.
+2. `LexicalIndex` ranks the corpus by BM25 over an in-memory inverted index,
+   over-fetching the same number. The two retrievals run one after the other on
+   the request thread.
 3. The two candidate lists are unioned. A document only one retriever found still
    gets a score from the other: its vector is read from the index, and BM25 is
    computed for it directly.
@@ -99,17 +114,18 @@ Two retrievers run over the whole corpus, and their rankings are combined:
    score, and truncated to `limit`.
 
 Retrieving lexically is what makes the words a way in. A document whose terms
-match the query exactly, but whose embedding sits outside the vector
-neighbourhood, is found by step 2 and could not be recovered at any weight when
-BM25 only re-scored what kNN had already returned.
+match the query exactly but whose embedding sits outside the vector
+neighbourhood is found by step 2; scoring only the kNN candidates would leave it
+unreachable at any weight.
 
 ### Fusion
 
 `search.fusion` picks how step 4 combines the two.
 
 - **`blend` (default).** A weighted sum, `search.hybrid-vector-weight` on the
-  vector score and the remainder on BM25. Keeps score magnitudes, so a strong
-  match stays visibly stronger and `minScore` keeps one meaning.
+  vector score and the remainder on BM25, floored at the vector score so BM25 can
+  raise a document and never lower one. Keeps score magnitudes, so a strong match
+  stays visibly stronger and `minScore` keeps one meaning.
 - **`rrf`.** Reciprocal rank fusion: each list contributes `1 / (k + rank)` with
   `search.rrf-k` defaulting to 60, normalised so the best possible score is 1.0.
   Reads positions only, so the two lists need not agree on what a score means.
@@ -125,21 +141,22 @@ blend wins:
 | `hashing` + `rrf` | **0.635** | **0.695** | 0.875 |
 
 On a query that is one rare identifier, RRF wins and the blend cannot. Give the
-blend two dozen close vector matches and one document that holds the term and
-nothing else, and the lexical-only document caps at the lexical weight, 0.3 at
-the defaults, while every decoy keeps around 0.75. No BM25 score clears that gap.
-RRF compares positions, so rank 1 on the lexical list stands beside rank 1 on the
+blend forty close vector matches and one document that holds the term and nothing
+else, and the lexical-only document caps near the lexical weight, 0.3 at the
+defaults, while every decoy keeps around 0.75. No BM25 score clears that gap. RRF
+compares positions, so rank 1 on the lexical list stands beside rank 1 on the
 vector list. `HybridRetrievalTest` pins both outcomes.
 
 `minScore` is a floor on the score you get back. It is applied to the blended
 score after boosts and decay, not to the raw vector score, which is always lower.
 
-Its default of `0.2` is calibrated to the lexical default: over the gold set the
-best match for a natural-language query scores between 0.32 and 0.53, every query
-still returns something at a floor of 0.3, and none do at 0.4. Under `onnx` the
-same eight queries score 0.36 to 0.64, so the default leaves more headroom there.
-Any other model spreads scores differently, and a floor set for one is not a
-floor for another.
+Its default of `0.2` is calibrated to the lexical default. Over the eight gold
+queries the best match scores between 0.32 and 0.53; raising the floor to 0.3
+still answers all eight, and 0.4 answers only three. The default sits below that
+edge while cutting the weak tail, taking those queries from 64 results to 22.
+Under `onnx` the same queries score 0.37 to 0.64, so the default leaves more
+headroom there. Any other model spreads scores differently, and a floor set for
+one is not a floor for another.
 
 ### Recency
 
@@ -175,7 +192,7 @@ Three providers, selected by `EMBEDDING_PROVIDER`:
   L2-normalised, which is how the model was trained to produce a sentence vector.
   It scores "car" against "automobile" at 0.86 and against "banana" at 0.39.
   Still no API key, and still deterministic, at the cost of a 90 MB model file
-  and about 1.4 ms per uncached query.
+  and about 2 ms per uncached query.
 - **`openai`.** Supply `EMBEDDING_API_KEY` and set `EMBEDDING_DIMENSIONS` to
   match the model (1536 for `text-embedding-3-small` at full width).
 
@@ -203,9 +220,11 @@ curl -X POST http://localhost:8080/api/v1/search/index/rebuild
 
 ## Evaluation
 
-`GET /api/v1/eval/run` scores a curated gold set against the seeded corpus and
-returns MRR, NDCG@k and Recall@k. CI publishes the same report as the
-`eval-report` artifact.
+`GET /api/v1/eval/run?k=5` scores a curated gold set against the seeded corpus
+and returns MRR, NDCG@k and Recall@k. CI uploads the same JSON as the
+`eval-report` artifact, measured under the test profile, which runs the lexical
+embedder at 128 dimensions and so reports slightly different values from the
+demo profile below.
 
 The numbers below are verbatim runs of that endpoint on the `demo` profile over
 the same eight documents, once per local provider. The committed copies are
@@ -247,6 +266,47 @@ Eight queries with one relevant document each is a regression guard, not a
 relevance benchmark. It is too small to support a claim about ranking quality in
 general.
 
+### SciFact
+
+Eight queries cannot say whether the ranking is good. This can. `BeirBenchmark`
+indexes [BEIR](https://github.com/beir-cellar/beir)/SciFact, 5,183 abstracts and
+300 judged queries, scores retrieval four ways and writes
+[`docs/benchmark-scifact.json`](docs/benchmark-scifact.json):
+
+```bash
+EMBEDDING_PROVIDER=onnx java -jar target/semantic-search-java-1.0.0.jar \
+  --spring.profiles.active=benchmark
+```
+
+It fetches a 2.7 MB archive on first use, checked against a digest, and takes
+about two minutes end to end: 34 s to embed and index the corpus, the rest to
+answer 1,200 queries.
+
+| | NDCG@10 | Recall@100 | MRR | median | p95 |
+| --- | --- | --- | --- | --- | --- |
+| BM25 alone | 0.667 | 0.886 | 0.640 | 0.5 ms | 1.2 ms |
+| Vector alone | 0.645 | 0.925 | 0.611 | 7.9 ms | 10.3 ms |
+| Hybrid, `blend` | 0.673 | 0.958 | 0.637 | 9.6 ms | 12.5 ms |
+| Hybrid, `rrf` | **0.685** | **0.968** | **0.654** | 8.9 ms | 10.2 ms |
+
+Table 2 of the [BEIR paper](https://arxiv.org/abs/2104.08663) reports NDCG@10 on
+this same split: BM25 0.665, TAS-B 0.643, GenQ 0.644, ColBERT 0.671, ANCE 0.507,
+DPR 0.318. The BM25 row above lands at 0.667 against their 0.665, which is the
+useful part of running a published benchmark: the lexical retriever here is
+reproducing a number computed by a different implementation, so the numbers
+beside it can be read as measurements and not as claims.
+
+Rank fusion is the configuration that beats every model in that table. It is also
+the one the eight-query gold set says is worse, which is what a corpus of eight
+documents is worth.
+
+Read with these caveats. The BM25 is this repository's, not Anserini's, and the
+tokenizer and stop-word list differ. The dense row is all-MiniLM-L6-v2, which is
+not in that table. SciFact's median abstract is 204 words and the embedder
+truncates at 256 word pieces, so the vector row is measured on documents it can
+only partly see; chunking would raise it. Each row is a single run on a laptop,
+with no significance testing.
+
 ### Choosing a provider
 
 |  | `hashing` (default) | `onnx` | `openai` |
@@ -276,23 +336,41 @@ from `curl` on the same machine:
 
 | | median | p95 |
 | --- | --- | --- |
-| `hashing`, warm cache, 30 requests over 6 repeated queries | 1.9 ms | 2.4 ms |
-| `onnx`, warm cache, 30 requests over 6 repeated queries | 2.1 ms | 2.4 ms |
-| `hashing`, 50 queries each seen once | 3.8 ms | 5.4 ms |
-| `onnx`, 50 queries each seen once | 5.2 ms | 6.6 ms |
+| `hashing`, warm cache, 30 requests over 6 repeated queries | 1.5 ms | 2.3 ms |
+| `onnx`, warm cache, 30 requests over 6 repeated queries | 2.5 ms | 2.7 ms |
+| `hashing`, 50 queries each seen once | 2.6 ms | 3.3 ms |
+| `onnx`, 50 queries each seen once | 4.8 ms | 5.4 ms |
 
-The warm rows barely move between providers because a cache hit returns before
-anything is embedded. The gap between the two cold rows, about 1.4 ms, is what
-running the transformer actually costs.
+The gap between the two cold rows, about 2 ms, is what running the transformer
+costs. It shows up in the warm rows too, because the result cache is keyed on the
+whole request and six repeated queries still miss it the first time round.
 
 These describe an eight-document in-process index, so treat them as a floor for
-pipeline overhead and not as a throughput result. `perf/k6-smoke.js` is a
+pipeline overhead and not as a throughput result. The per-configuration timings
+in the SciFact table above are the ones measured over 5,183 documents. `perf/k6-smoke.js` is a
 10-user, 30-second smoke test over a single repeated query. It checks the service
 stays up and under `p95 < 400ms`, and is not a load benchmark:
 
 ```bash
 BASE_URL=http://localhost:8080 k6 run perf/k6-smoke.js
 ```
+
+### Instrumentation
+
+`/actuator/prometheus` carries a timer per pipeline stage, so a slow query points
+at the stage that was slow:
+
+```text
+search_stage_seconds{stage="embed"}
+search_stage_seconds{stage="vector_retrieval"}
+search_stage_seconds{stage="lexical_retrieval"}
+search_stage_seconds{stage="hydrate"}
+search_results
+```
+
+Each is a histogram with percentiles, tagged with the application name and the
+active profile. `search_results` records how many results each query returned,
+which is where a `minScore` set too high shows up first.
 
 ## API
 
@@ -306,6 +384,7 @@ Base path `/api/v1`. Full schema at `/swagger-ui.html`.
 | `POST` | `/search/advanced` | Same fields as JSON, plus `filters` and `fields` |
 | `GET` | `/search/similar/{id}` | Documents similar to an existing one |
 | `POST` | `/search/index/rebuild` | Re-embed and re-index everything |
+| `GET` | `/eval/run` | Score the gold set. `k` (5) sets the NDCG and Recall cutoff |
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/search/advanced \
@@ -337,22 +416,42 @@ not a bare array.
 | --- | --- | --- |
 | `EMBEDDING_PROVIDER` | `hashing`, `onnx` or `openai` | `hashing` |
 | `EMBEDDING_DIMENSIONS` | Vector width for `hashing` and `openai`; also the index mapping. `onnx` reports its own. | `256` |
-| `EMBEDDING_API_KEY` | Required by the `openai` provider | — |
+| `EMBEDDING_API_KEY` | Required by the `openai` provider | none |
 | `EMBEDDING_MODEL` | Hosted model name | `text-embedding-3-small` |
 | `EMBEDDING_ONNX_MODEL_DIR` | Where the ONNX model is cached | `~/.cache/semantic-search-java/models/all-MiniLM-L6-v2` |
 | `EMBEDDING_ONNX_AUTO_DOWNLOAD` | Fetch the model when it is not cached | `true` |
+| `EMBEDDING_API_BASE_URL` | Hosted provider endpoint | `https://api.openai.com` |
+| `SEARCH_FUSION` | `blend` or `rrf` | `blend` |
+| `SEARCH_RRF_K` | The `k` in `1 / (k + rank)` | `60` |
+| `SEARCH_RECENCY_ENABLED` | Scale scores by document age | `true` |
+| `SEARCH_RECENCY_HALF_LIFE_SECONDS` | Half-life of the decay | `604800` |
+| `SEARCH_RECENCY_FLOOR` | Smallest multiplier age can apply | `0.7` |
+| `SEARCH_HYBRID_ENABLED` | Retrieve lexically as well as by vector | `true` |
+| `SEARCH_HYBRID_VECTOR_WEIGHT` | Vector share of the blended score | `0.7` |
+| `SEARCH_BM25_K1` / `_B` | BM25 term saturation and length normalisation | `1.2` / `0.75` |
 | `ELASTICSEARCH_STUB_ENABLED` | Use the in-process vector index | `true` |
-| `ELASTICSEARCH_HOST` / `_PORT` | Cluster to use when the stub is off | `localhost` / `9200` |
+| `ELASTICSEARCH_HOST` / `_PORT` / `_PROTOCOL` | Cluster to use when the stub is off | `localhost` / `9200` / `http` |
+| `ELASTICSEARCH_USERNAME` / `_PASSWORD` | Cluster credentials, unset means none | none |
+| `MANAGEMENT_HEALTH_ELASTICSEARCH_ENABLED` | Include the cluster in `/actuator/health` | `false` |
 | `SECURITY_AUTH_ENABLED` | HTTP basic auth | `true` |
 | `ADMIN_USER` / `ADMIN_PASSWORD` | Basic auth credentials | `admin` / `admin` |
 | `SEED_DEMO_ENABLED` | Seed the demo corpus at startup | `false` |
 | `EVAL_RUN_ON_STARTUP` | Run the eval harness at startup | `false` |
+| `BENCHMARK_AUTO_DOWNLOAD` | Fetch the BEIR archive when it is not cached | `true` |
 | `POSTGRES_HOST` / `_PORT` / `_DB` / `_USER` / `_PASSWORD` | Database | `localhost` / `5432` / `semanticsearch` / `postgres` / `postgres` |
-| `REDIS_HOST` / `_PORT` | Embedding and result cache | `localhost` / `6379` |
+| `REDIS_HOST` / `_PORT` / `_PASSWORD` | Embedding and result cache | `localhost` / `6379` / none |
+| `SPRING_CACHE_TYPE` | `redis`, or `simple` for an in-process cache | `redis` |
 
-Only `GET /search` and `/search/similar/**` are public when auth is on;
-everything else requires credentials. The defaults are development credentials —
-change them before exposing the service.
+`search.*` and `embedding.onnx.*` are `@ConfigurationProperties`, so anything
+under those prefixes also binds from an upper-case environment variable, and
+`application.yml` lists a few more keys than are worth a row here.
+
+With auth on, these answer without credentials: `GET /api/v1/search`,
+`/api/v1/search/similar/**`, `/swagger-ui.html`, `/swagger-ui/**`,
+`/v3/api-docs/**`, `/actuator/health` and `/actuator/info`. Everything else needs
+them, including the bundled UI at `/`, the rest of `/actuator` and every write.
+`SecurityRulesTest` pins that list. The defaults are development credentials.
+Change them before exposing the service.
 
 ## Running the full stack
 
@@ -386,26 +485,39 @@ date with the source, so rebuild and commit both together.
 ```text
 src/main/java/io/github/semanticsearch/
   controller/   REST endpoints
-  service/      embedding, indexing, search, evaluation
+  service/      embedding, indexing, search, evaluation, metrics
+  benchmark/    the BEIR runner and its dataset loader
   repository/   Spring Data access to PostgreSQL
   model/        Document and search DTOs
+  util/         ScoreCalculator
   config/       application configuration
+  exception/    the API error contract
   security/     authentication and CORS
+src/main/resources/static/   the compiled UI, committed
 ui/             React frontend source
 perf/           k6 smoke test
-docs/           eval reports and README images
+docs/           eval reports, the benchmark report and README images
 ```
 
-Notable pieces: `HashingEmbedder` and `OnnxEmbedder` (the two in-process
-embedding models, both behind `TextEmbedder`), `ModelCache` (fetches model
-weights and checks them against a digest), `SearchService.search` (the
-retrieve/re-rank pipeline), `DocumentService` (the write path, and the only place
-that invalidates caches), `LexicalIndex` (the inverted index and BM25),
-`EvalService` (the gold set and metrics).
+Notable pieces:
+
+| | |
+| --- | --- |
+| `TextEmbedder` | the interface behind `HashingEmbedder` and `OnnxEmbedder` |
+| `VerifiedFileCache` | fetches large files and checks them against a digest |
+| `SearchService.search` | retrieve twice, fuse, re-score, truncate |
+| `LexicalIndex` | the inverted index, BM25 retrieval and BM25 scoring |
+| `ScoreCalculator` | blending, rank fusion, metadata boosts, recency |
+| `DocumentService` | the write path, and the only place that drops the lexical index |
+| `RankingMetrics` | MRR, NDCG@k and Recall@k, shared by both eval paths |
+| `EvalService` | the curated gold set |
+| `BeirBenchmark` | the SciFact run |
+| `SearchMetrics` | the per-stage timers |
 
 ### Known limitations
 
-- The default embedder is lexical, so out of the box synonyms do not match.
+- The default embedder is lexical, so synonyms do not match under the default
+  configuration.
   `EMBEDDING_PROVIDER=onnx` fixes that at the cost of a model download.
 - The ONNX provider embeds a whole document as one vector. A long document with
   several unrelated sections averages into a vector that represents none of them,
@@ -420,6 +532,9 @@ that invalidates caches), `LexicalIndex` (the inverted index and BM25),
   search, but not the lexical one, where they are applied to its output. A
   heavily filtered query can therefore draw fewer lexical candidates than it
   asked for.
+- `minScore` is calibrated against blended scores. Under `rrf` a document found
+  by one retriever alone caps at 0.5 whatever its similarity, so the same floor
+  filters differently.
 - PostgreSQL and the search index are written in one database transaction but
   share no transaction of their own. An index write that succeeds before a failed
   commit leaves a vector with no row; index writes are upserts keyed on the
@@ -427,8 +542,8 @@ that invalidates caches), `LexicalIndex` (the inverted index and BM25),
   outbox would close the window properly.
 - Against a real Elasticsearch, a newly created document becomes searchable at the
   next index refresh (a second by default) rather than immediately.
-- The evaluation set is eight queries with one relevant document each — a
-  regression guard, not a relevance benchmark.
+- The curated set is eight queries with one relevant document each. It guards
+  against regressions; the SciFact run is what measures ranking quality.
 - Persistence entities double as API request and response bodies, so responses
   carry internal fields such as `vectorId`, `contentHash` and `indexed`.
 - Schema is managed by Hibernate `ddl-auto`; Flyway is present but disabled.

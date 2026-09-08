@@ -70,14 +70,13 @@ jobs:
           path: ~/.cache/semantic-search-java/models
           key: onnx-models-${{ hashFiles('src/main/resources/application.yml') }}
 
-      # Runs spotless, the tests and the JaCoCo coverage gate. No skip flags:
-      # every check configured in the pom is one CI actually enforces.
+      # Runs spotless, the tests and the JaCoCo coverage gate with no skip flags,
+      # so every check configured in the pom is one CI enforces.
       - name: Build with Maven
         run: ./mvnw -B clean verify
 
-      # Tags on this action are v-prefixed. It was pinned to "0.33.1", which is
-      # not a ref that exists, so the step failed to resolve and the scan never
-      # ran.
+      # Tags on this action are v-prefixed. An unprefixed "0.36.0" is not a ref
+      # that exists, so the step fails to resolve and the scan does not run.
       - name: Run security scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:

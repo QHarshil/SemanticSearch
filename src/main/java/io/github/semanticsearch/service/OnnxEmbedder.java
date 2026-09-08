@@ -23,10 +23,10 @@ import ai.onnxruntime.OrtSession;
  * HashingEmbedder} matches shared words and character n-grams and is the zero-download default;
  * this one costs a model file and roughly a millisecond per embedding.
  *
- * <p>The three steps after inference are what turn token vectors into a sentence vector, and they
- * have to match how the model was trained or the vectors are subtly wrong rather than obviously
- * broken. Token vectors are averaged over the attention mask, so padding contributes nothing, and
- * the average is L2-normalised so cosine similarity is a dot product.
+ * <p>The steps after inference turn token vectors into a sentence vector, and they have to match
+ * how the model was trained or the vectors come out wrong in a way nothing downstream detects.
+ * Token vectors are averaged over the attention mask, so padding contributes nothing, and the
+ * average is L2-normalised so cosine similarity is a dot product.
  *
  * <p>Safe for concurrent use: {@code OrtSession.run} and {@code HuggingFaceTokenizer.encode} are
  * both thread-safe, and nothing here keeps per-request state.
