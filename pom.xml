@@ -32,7 +32,7 @@
              Drop an entry once the managed version catches up: an override that
              pins *below* the managed version is how CVEs get reintroduced. -->
         <tomcat.version>10.1.59</tomcat.version>
-        <netty.version>4.1.136.Final</netty.version>
+        <netty.version>4.1.138.Final</netty.version>
 
         <!-- Build tooling. jacoco 0.8.13+ is required to read class files from
              JDKs newer than the Java 21 release target. -->
